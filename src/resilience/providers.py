@@ -96,7 +96,7 @@ class ProviderCascade:
                 parsed = urlparse(base)
                 if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                     raise ValueError(f"Invalid provider URL for {pid}")
-                specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
+                if pid == "kilo-m3-free":\n                    model = "kilo-auto/free"\n                    pid = "kilo"\n                specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
         else:
             configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
             configured_model = os.getenv("MODEL_NAME", "").strip()
@@ -147,7 +147,7 @@ class ProviderCascade:
                     4_000,
                 )
             )
-        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
+        disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}\n        if disabled:\n            specs = [spec for spec in specs if spec.provider_id not in disabled]\n        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
         return cls(state, specs, order)
 
     @property
