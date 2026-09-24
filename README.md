@@ -1,26 +1,55 @@
 # C-33
 
-Base foundation for an autonomous AI system.
+C-33 es la base de una IA independiente diseñada alrededor de tres capacidades:
 
-## Pillars
+1. **Pensamiento:** un ciclo de razonamiento y decisión desacoplado del proveedor de IA.
+2. **Internet:** una herramienta web aislada para búsquedas y acceso HTTP.
+3. **Memoria:** una interfaz de persistencia de contexto preparada para evolucionar a un backend duradero.
 
-- Agent loop: iterative reasoning and action execution.
-- Tools: explicit tool registry for web/API integrations.
-- Memory: persistent-state interface, with an in-memory implementation for the foundation.
+## Estructura
 
-This repository intentionally contains no provider-specific AI integration, GitHub Actions, CI/CD pipeline, or heavy linting.
+```text
+C-33/
+├── src/
+│   ├── core/
+│   │   ├── config.py
+│   │   └── logging.py
+│   ├── agent/
+│   │   └── brain.py
+│   ├── tools/
+│   │   └── web.py
+│   ├── memory/
+│   │   └── store.py
+│   └── main.py
+├── .env.example
+├── .gitignore
+└── pyproject.toml
+```
 
-## Local run
+## Requisitos
 
-Python 3.13.15 is the selected runtime baseline.
+- Python 3.12 o 3.13
+- pip
+
+## Instalación
 
 ```bash
 python3.13 -m venv .venv
 source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -e .
 cp .env.example .env
-uvicorn main:app --reload
 ```
 
-Open http://127.0.0.1:8000/health
+## Ejecución
+
+```bash
+uvicorn main:app --app-dir src --reload
+```
+
+Comprobar:
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+La fundación no contiene proveedores propietarios ni workflows de GitHub Actions. Las futuras integraciones se conectarán mediante interfaces aisladas.
