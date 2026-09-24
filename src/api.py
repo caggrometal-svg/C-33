@@ -133,7 +133,7 @@ async def _remote_ai_probe(*, force: bool = False) -> dict[str, Any]:
                 {"role": "system", "content": "Respond with a short health-check acknowledgement."},
                 {"role": "user", "content": "C33_AI_READY_PROBE"},
             ],
-            DeadlineBudget(6_000),
+            DeadlineBudget(11_000),
             probe=True,
         )
         if not result.text.strip():
