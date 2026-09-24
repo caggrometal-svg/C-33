@@ -125,6 +125,8 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     user_id: str = Field(default="anonymous", min_length=1, max_length=256)
     stream: bool = False
+    personality: str = Field(default="base", max_length=32)
+    voice_tone: str = Field(default="neutral", max_length=32)
 
 
 class ChatResponse(BaseModel):
@@ -142,7 +144,7 @@ class ChatResponse(BaseModel):
 async def _chat(payload: ChatRequest) -> ChatResponse:
     """Run Brain.process."""
     try:
-        result: AgentResult = await brain.process(payload.message)
+        result: AgentResult = await brain.process(payload.message, personality_mode=payload.personality)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
