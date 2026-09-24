@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#151922">
+  <title>C-33</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app" aria-label="C-33">
+    <header class="header">
+      <div>
+        <h1>C-33</h1>
+        <p>Motor de debate dialéctico</p>
+      </div>
+      <span id="status" class="status">Desconectado</span>
+    </header>
+
+    <section id="chat" class="chat" aria-live="polite"></section>
+
+    <form id="chat-form" class="composer">
+      <label class="sr-only" for="message">Mensaje</label>
+      <textarea id="message" name="message" rows="2" maxlength="20000"
+        placeholder="Escribe tu mensaje..." required></textarea>
+      <button id="send" type="submit">Enviar</button>
+    </form>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
