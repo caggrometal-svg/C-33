@@ -119,8 +119,6 @@ class ProviderCascade:
                     model = "kilo-auto/free"
                     pid = "kilo"
                 api_key_env = str(item.get("api_key_env", "")).strip() or None
-                if api_key_env and not os.getenv(api_key_env, "").strip():
-                    raise ProviderConfigurationError(f"missing_api_key_for_provider:{pid}")
                 specs.append(ProviderSpec(pid, base, model, api_key_env, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
         else:
             configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
@@ -172,11 +170,48 @@ class ProviderCascade:
                     4_000,
                 )
             )
+        provider_ids = {spec.provider_id for spec in specs}
+        if len(provider_ids) != len(specs):
+            raise ProviderConfigurationError("duplicate_provider_ids")
+
         disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}
-        if disabled:
-            specs = [spec for spec in specs if spec.provider_id not in disabled]
-        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
-        return cls(state, specs, order)
+        unknown_disabled = sorted(disabled - provider_ids)
+        if unknown_disabled:
+            raise ProviderConfigurationError("unknown_disabled_providers:" + ",".join(unknown_disabled))
+
+        raw_order = os.getenv("AI_PROVIDER_ORDER", "").strip()
+        order = (
+            [x.strip() for x in raw_order.split(",") if x.strip()]
+            if raw_order
+            else [spec.provider_id for spec in specs]
+        )
+        if len(set(order)) != len(order):
+            raise ProviderConfigurationError("provider_order_contains_duplicates")
+
+        unknown_order = sorted(set(order) - provider_ids)
+        missing_order = sorted(provider_ids - set(order))
+        if unknown_order or missing_order:
+            detail = []
+            if unknown_order:
+                detail.append("unknown=" + ",".join(unknown_order))
+            if missing_order:
+                detail.append("missing=" + ",".join(missing_order))
+            raise ProviderConfigurationError("provider_order_mismatch:" + ";".join(detail))
+
+        # Disabled providers remain part of the validated topology, but are removed
+        # symmetrically from both the provider set and runtime order.
+        active_specs = [spec for spec in specs if spec.provider_id not in disabled]
+        active_order = [provider_id for provider_id in order if provider_id not in disabled]
+
+        active_by_id = {spec.provider_id: spec for spec in active_specs}
+        for spec in active_specs:
+            if spec.api_key_env and not os.getenv(spec.api_key_env, "").strip():
+                raise ProviderConfigurationError(f"missing_api_key_for_provider:{spec.provider_id}")
+
+        if len(active_by_id) != len(active_order):
+            raise ProviderConfigurationError("active_provider_topology_mismatch")
+
+        return cls(state, active_specs, active_order)
 
     @property
     def configured_provider_count(self) -> int:
@@ -249,14 +284,20 @@ class ProviderCascade:
         for index, spec in enumerate(self.providers):
             if budget.remaining_ms < 1000:
                 break
-            decision = await self.state.circuit_before_call(spec.provider_id)
-            if not decision.allowed:
-                attempts.append({
-                    "provider": spec.provider_id,
-                    "reason": "circuit_open",
-                    "cooldown_ms": decision.cooldown_ms,
-                })
-                continue
+            if not probe:
+                decision = await self.state.circuit_before_call(spec.provider_id)
+                if not decision.allowed:
+                    attempts.append({
+                        "provider": spec.provider_id,
+                        "reason": "circuit_open",
+                        "cooldown_ms": decision.cooldown_ms,
+                    })
+                    continue
+            else:
+                logger.info(
+                    "[NEXO_DEBUG_READY] probe_bypass_circuit provider=%s reason=live_readiness_probe",
+                    spec.provider_id,
+                )
             started = time.monotonic()
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)
             if timeout_ms < 750:
