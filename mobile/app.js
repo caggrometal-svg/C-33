@@ -147,7 +147,9 @@ function setStatus(text, mode = "") {
 async function requestWithFailover(path, options = {}) {
   let lastError = new Error("Todos los servidores están desconectados.");
   const isChat = path === API_PATH;
-  const timeoutMs = isChat ? 30000 : 10000;
+  // Keep Render primary, but fail over quickly when it is unavailable.
+  // Railway receives the longer budget needed for real model generation.
+  const timeoutMs = isChat ? 45000 : 8000;
   const deadline = Date.now() + timeoutMs;
   const order = BACKEND_URLS.map(
     (_, offset) => (activeBackendIndex + offset) % BACKEND_URLS.length,
@@ -158,10 +160,10 @@ async function requestWithFailover(path, options = {}) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
-    // Give each backend enough time to respond while preserving the total failover budget.
+    const isPrimary = baseUrl.includes("render.com");
     const attemptMs = isChat
-      ? Math.min(remainingMs, 15000)
-      : Math.min(remainingMs, 5000);
+      ? Math.min(remainingMs, isPrimary ? 8000 : 37000)
+      : Math.min(remainingMs, isPrimary ? 3000 : 5000);
 
     try {
       const controller = new AbortController();
