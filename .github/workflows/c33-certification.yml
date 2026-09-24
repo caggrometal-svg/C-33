@@ -208,6 +208,15 @@ jobs:
           if status.status_code != 200:
               raise SystemExit(f"/status failed: {status.status_code} {status.text}")
 
+          diagnostics = httpx.get(base + "/v1/ai/diagnostics", timeout=8)
+          if diagnostics.status_code != 200:
+              raise SystemExit(f"/v1/ai/diagnostics failed: {diagnostics.status_code} {diagnostics.text}")
+          diagnostics_data = diagnostics.json()
+          if int(diagnostics_data.get("provider_count", 0)) < 2:
+              raise SystemExit(f"provider redundancy missing: {json.dumps(diagnostics_data)}")
+          if len(set(diagnostics_data.get("provider_failure_domains", []))) < 2:
+              raise SystemExit(f"provider failure domains not diverse: {json.dumps(diagnostics_data)}")
+
           print(json.dumps({
               "sha": expected,
               "health": health_data,
