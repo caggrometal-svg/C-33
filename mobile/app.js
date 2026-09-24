@@ -183,7 +183,7 @@ async function probeBackend(index) {
     const ai = await fetchBounded(base + AI_READY_PATH, {}, remaining);
     if (ai.ok) {
       recordBackendSuccess(index);
-      return { backend: index, state: "AI_READY", reason: "synthetic_ok" };
+      return { backend: index, state: "AI_READY", reason: "remote_success" };
     }
     let reason = "ai_ready_http_" + ai.status;
     try {
