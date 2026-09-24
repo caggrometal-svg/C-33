@@ -569,6 +569,20 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                     "deployment_sha": _deployment_sha(),
                 },
             )
+            final_meta = {
+                "provider_used":stream_meta.provider_used,
+                "model":stream_meta.model,
+                "failover_triggered":stream_meta.failover_triggered,
+                "latency_ms":int((time.monotonic() - started) * 1000),
+                "final_reason":"stream_complete",
+                "system_status":stream_meta.system_status,
+                "backend_role":config.role,
+                "backend_url":_backend_url(),
+                "request_id":request_id,
+                "conversation_id":payload.conversation_id,
+                "provider_attempts":stream_meta.attempts,
+                "used_local_fallback":False,
+            }
             await st.append_message(
                 conversation_id=payload.conversation_id,
                 user_id=payload.user_id,
@@ -577,7 +591,6 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources,"meta":final_meta},
                 request_id=request_id,
             )
-            final_meta = {
                 "provider_used":stream_meta.provider_used,
                 "model":stream_meta.model,
                 "failover_triggered":stream_meta.failover_triggered,
