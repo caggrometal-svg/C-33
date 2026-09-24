@@ -113,8 +113,8 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         model_api_key=model_api_key,
         environment=os.getenv("APP_ENV", "production").strip() or "production",
         role=role,
-        backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 12000, 1000),
-        client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 15000, 1000),
+        backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 18000, 1000),
+        client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 22000, 1000),
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
         peer_url=(
             os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/")
