@@ -83,6 +83,34 @@ class MemoryStore:
             await asyncio.to_thread(self._write_sync, entries)
         return entry
 
+    async def learn(
+        self,
+        *,
+        topic: str,
+        knowledge: str,
+        sources: list[str] | None = None,
+    ) -> MemoryEntry:
+        """Persist useful new knowledge for future retrieval."""
+        topic = topic.strip()
+        knowledge = knowledge.strip()
+        if not topic or not knowledge:
+            raise ValueError("topic and knowledge cannot be empty")
+
+        source_tags = [
+            f"source:{item}"
+            for item in (sources or [])
+            if item.strip()
+        ]
+        return await self.save(
+            f"NEXO learning: {topic[:180]}",
+            knowledge,
+            summary=knowledge[:240],
+            tags=["nexo", "learned", "knowledge", *source_tags],
+            debate_topic=topic[:180],
+            user_position="acquired during interaction",
+            central_arguments=[knowledge[:700]],
+        )
+
     async def search_context(
         self,
         query: str,
