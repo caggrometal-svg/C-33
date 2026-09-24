@@ -115,11 +115,11 @@ class Brain:
         self.model = model
         self.nexo = NexoCore()
 
-    async def process(self, prompt: str) -> AgentResult:
+    async def process(self, prompt: str, personality_mode: str | None = None) -> AgentResult:
         """Process a user message through the C-33 reasoning engine."""
-        return await self.run(prompt)
+        return await self.run(prompt, personality_mode=personality_mode)
 
-    async def run(self, prompt: str) -> AgentResult:
+    async def run(self, prompt: str, personality_mode: str | None = None) -> AgentResult:
         """Execute a bounded ReAct loop and persist the final interaction."""
         prompt = prompt.strip()
         if not prompt:
@@ -161,7 +161,7 @@ class Brain:
                 continue
 
             if action == "final":
-                response = await self._synthesize(prompt, context)
+                response = await self._synthesize(prompt, context, personality_mode=personality_mode)
                 await self.memory.save(
                     prompt,
                     response,
@@ -183,7 +183,7 @@ class Brain:
                     memory_hits=memory_hits,
                 )
 
-        response = await self._synthesize(prompt, context)
+        response = await self._synthesize(prompt, context, personality_mode=personality_mode)
         await self.memory.save(prompt, response, summary=response[:240], tags=["max_steps", "nexo", "learned"], debate_topic=self._debate_topic(prompt), user_position=prompt[:500], central_arguments=self._central_arguments(prompt, response))
         await self.memory.learn(
             topic=self._debate_topic(prompt),
@@ -202,6 +202,7 @@ class Brain:
         prompt: str,
         context: list[str],
         used_actions: set[str],
+        personality_mode: str | None = None,
     ) -> dict[str, str]:
         """Ask the configured model for a JSON action, or use a deterministic fallback."""
         if self.model is not None:
@@ -211,7 +212,7 @@ class Brain:
                         {
                             "role": "system",
                             "content": (
-                                f"{NexoCore.system_prompt()} Decide the next observable action only. "
+                                f"{NexoCore.system_prompt(personality_mode)} Decide the next observable action only. "
                                 "Return JSON with action and argument. Actions: memory, web_search, web_search_counter, "
                                 "fetch_url, web_search_counter, final. Never return hidden chain-of-thought or analysis. "
                                 "Use web_search for current or externally verifiable information; "
@@ -239,7 +240,7 @@ class Brain:
                 return self._heuristic_decision(prompt, context, used_actions)
         return self._heuristic_decision(prompt, context, used_actions)
 
-    async def _synthesize(self, prompt: str, context: list[str]) -> str:
+    async def _synthesize(self, prompt: str, context: list[str], personality_mode: str | None = None) -> str:
         """Synthesize the final answer with the configured model or a safe local fallback."""
         if self.model is not None:
             try:
@@ -248,7 +249,7 @@ class Brain:
                         {
                             "role": "system",
                             "content": (
-                                f"{NexoCore.system_prompt()} Answer the user's question directly using the supplied context. "
+                                f"{NexoCore.system_prompt(personality_mode)} Answer the user's question directly using the supplied context. "
                                 "Do not reveal hidden chain-of-thought. Distinguish retrieved facts from uncertainty. "
                                 "When web evidence exists, cite the relevant URLs in a compact Sources section. " + DEFAULT_DEBATE_SYSTEM_PROMPT
                             ),
