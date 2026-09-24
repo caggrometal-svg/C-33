@@ -1,5 +1,4 @@
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -7,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ApiContractTests(unittest.TestCase):
     def setUp(self):
         self.api = (ROOT / "src" / "api.py").read_text(encoding="utf-8")
+        self.providers = (ROOT / "src" / "resilience" / "providers.py").read_text(encoding="utf-8")
 
     def test_stream_replays_completed_request_by_id(self):
         self.assertIn("existing_assistant_for_request(payload.conversation_id, request_id)", self.api)
@@ -21,8 +21,9 @@ class ApiContractTests(unittest.TestCase):
         self.assertNotIn("time.monotonic() + 120.0", self.api)
         self.assertIn("time.monotonic() + 15.0", self.api)
 
-    def test_dns_classification_retains_nested_transport_context(self):
-        self.assertIn("exc.__cause__", self.api) or self.assertTrue(True)
-        
+    def test_http_and_stream_transport_errors_use_nested_context(self):
+        self.assertGreaterEqual(self.providers.count("cause = exc.__cause__"), 2)
+        self.assertGreaterEqual(self.providers.count("temporary failure in name resolution"), 2)
+
 if __name__ == "__main__":
     unittest.main()
