@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from core.config import DEFAULT_DEBATE_SYSTEM_PROMPT
 from memory.store import MemoryEntry, MemoryStore
 from tools.web import SearchResult, WebPage, WebTool
 
@@ -137,9 +138,12 @@ class Brain:
                 context.extend(self._memory_context(memory_hits))
                 continue
 
-            if action == "web_search":
-                results = await self.web.search(argument or prompt)
-                context.extend(self._search_context(results))
+            if action in {"web_search", "web_search_counter"}:
+                query = argument or prompt
+                if action == "web_search_counter":
+                    query = f"{query} counterargument evidence criticism limitations alternative view"
+                results = await self.web.search(query)
+                context.extend(self._search_context(results, perspective=action))
                 sources.extend(result.url for result in results)
                 continue
 
@@ -156,6 +160,9 @@ class Brain:
                     response,
                     summary=response[:240],
                     tags=[trace[-1].action, "interaction"],
+                    debate_topic=self._debate_topic(prompt),
+                    user_position=prompt[:500],
+                    central_arguments=self._central_arguments(prompt, response),
                 )
                 return AgentResult(
                     response=response,
@@ -165,7 +172,7 @@ class Brain:
                 )
 
         response = await self._synthesize(prompt, context)
-        await self.memory.save(prompt, response, summary=response[:240], tags=["max_steps"])
+        await self.memory.save(prompt, response, summary=response[:240], tags=["max_steps"], debate_topic=self._debate_topic(prompt), user_position=prompt[:500], central_arguments=self._central_arguments(prompt, response))
         return AgentResult(
             response=response,
             trace=trace,
@@ -188,8 +195,8 @@ class Brain:
                             "role": "system",
                             "content": (
                                 "You are the C-33 planner. Decide the next observable action only. "
-                                "Return JSON with action and argument. Actions: memory, web_search, "
-                                "fetch_url, final. Never return hidden chain-of-thought or analysis. "
+                                "Return JSON with action and argument. Actions: memory, web_search, web_search_counter, "
+                                "fetch_url, web_search_counter, final. Never return hidden chain-of-thought or analysis. "
                                 "Use web_search for current or externally verifiable information; "
                                 "use memory for relevant prior context; use fetch_url when a concrete URL "
                                 "is provided or discovered; use final when enough evidence exists."
@@ -226,7 +233,7 @@ class Brain:
                             "content": (
                                 "You are C-33. Answer the user's question directly using the supplied context. "
                                 "Do not reveal hidden chain-of-thought. Distinguish retrieved facts from uncertainty. "
-                                "When web evidence exists, include the relevant URLs in a compact Sources section."
+                                "When web evidence exists, cite the relevant URLs in a compact Sources section. " + DEFAULT_DEBATE_SYSTEM_PROMPT
                             ),
                         },
                         {
@@ -251,7 +258,7 @@ class Brain:
             raise ValueError("Planner response must be an object")
         action = str(data.get("action", "")).strip()
         argument = str(data.get("argument", "")).strip()
-        if action not in {"memory", "web_search", "fetch_url", "final"}:
+        if action not in {"memory", "web_search", "web_search_counter", "fetch_url", "final"}:
             raise ValueError(f"Unsupported planner action: {action!r}")
         if action == "fetch_url":
             parsed = urlparse(argument)
@@ -289,6 +296,8 @@ class Brain:
         needs_web = any(marker in lower for marker in current_markers)
         if needs_web and "web_search" not in used_actions:
             return {"action": "web_search", "argument": prompt}
+        if needs_web and "web_search_counter" not in used_actions:
+            return {"action": "web_search_counter", "argument": prompt}
         if context and "memory" not in used_actions:
             return {"action": "memory", "argument": prompt}
         if not context and "web_search" not in used_actions and len(prompt.split()) >= 4:
@@ -304,10 +313,11 @@ class Brain:
         ]
 
     @staticmethod
-    def _search_context(results: list[SearchResult]) -> list[str]:
+    def _search_context(results: list[SearchResult], *, perspective: str = "web_search") -> list[str]:
         """Format search results as concise evidence strings."""
+        label = "counter-evidence" if perspective == "web_search_counter" else "evidence"
         return [
-            f"Web result: {item.title} | {item.url} | {item.snippet}" for item in results
+            f"Web {label}: {item.title} | {item.url} | {item.snippet}" for item in results
         ]
 
     @staticmethod
@@ -329,6 +339,14 @@ class Brain:
             )
         evidence = "\n".join(f"- {item}" for item in context[-5:])
         return f"Contexto recuperado para: {prompt}\n\n{evidence}"
+
+    @staticmethod
+    def _debate_topic(prompt: str) -> str:
+        return re.sub(r"\\s+", " ", prompt).strip()[:180]
+
+    @staticmethod
+    def _central_arguments(prompt: str, response: str) -> list[str]:
+        return [prompt.strip()[:500], response.strip()[:700]]
 
     @staticmethod
     def _unique(values: list[str]) -> list[str]:
