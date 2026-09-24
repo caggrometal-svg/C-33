@@ -171,6 +171,11 @@ class Brain:
                     user_position=prompt[:500],
                     central_arguments=self._central_arguments(prompt, response),
                 )
+                await self.memory.learn(
+                    topic=self._debate_topic(prompt),
+                    knowledge=response,
+                    sources=sources,
+                )
                 return AgentResult(
                     response=response,
                     trace=trace,
@@ -179,7 +184,12 @@ class Brain:
                 )
 
         response = await self._synthesize(prompt, context)
-        await self.memory.save(prompt, response, summary=response[:240], tags=["max_steps"], debate_topic=self._debate_topic(prompt), user_position=prompt[:500], central_arguments=self._central_arguments(prompt, response))
+        await self.memory.save(prompt, response, summary=response[:240], tags=["max_steps", "nexo", "learned"], debate_topic=self._debate_topic(prompt), user_position=prompt[:500], central_arguments=self._central_arguments(prompt, response))
+        await self.memory.learn(
+            topic=self._debate_topic(prompt),
+            knowledge=response,
+            sources=sources,
+        )
         return AgentResult(
             response=response,
             trace=trace,
