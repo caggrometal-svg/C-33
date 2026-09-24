@@ -32,12 +32,51 @@ class FaultTransport(httpx.AsyncBaseTransport):
             return httpx.Response(429, headers={"retry-after":"2"}, request=request)
         if behavior == "502":
             return httpx.Response(502, request=request)
+        if behavior == "stream_ok":
+            return httpx.Response(
+                200,
+                content=b'data: {"choices":[{"delta":{"content":"C33_STREAM_OK"}}]}\n\ndata: [DONE]\n\n',
+                headers={"content-type":"text/event-stream"},
+                request=request,
+            )
         return httpx.Response(200, json={"choices":[{"message":{"content":"C33_OK"}}]}, request=request)
 
 class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_deadline_is_bounded_by_client(self):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
         self.assertLessEqual(budget.remaining_ms, 5000)
+
+    async def test_stream_fails_over_to_second_provider(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"timeout","b.test":"stream_ok"}))
+        pieces = []
+        async for piece, meta in cascade.stream([{"role":"user","content":"x"}], DeadlineBudget(5000)):
+            pieces.append(piece)
+        self.assertEqual("".join(pieces), "C33_STREAM_OK")
+        self.assertEqual(state.successes[-1], "b")
+
+    async def test_probe_ignores_stale_open_circuit_and_recovers(self):
+        class StaleOpenState(FakeState):
+            async def circuit_before_call(self, provider_id):
+                return type("Decision", (), {"allowed": False, "state": "OPEN", "cooldown_ms": 600000})()
+
+        state = StaleOpenState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"timeout","b.test":"ok"}))
+        result = await cascade.complete(
+            [{"role":"user","content":"probe"}],
+            DeadlineBudget(5000),
+            probe=True,
+        )
+        self.assertEqual(result.text, "C33_OK")
+        self.assertIn(result.meta.provider_used, {"a","b"})
 
     async def test_429_fails_over_and_opens_first_circuit(self):
         state = FakeState()
