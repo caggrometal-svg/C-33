@@ -9,12 +9,16 @@ const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
 const chat = document.getElementById("chat");
 const send = document.getElementById("send");
+const audio = document.getElementById("audio");
 const status = document.getElementById("status");
+const statusDot = document.getElementById("status-dot");
+const welcome = document.getElementById("welcome");
 
 const userId = localStorage.getItem(USER_ID_KEY) || crypto.randomUUID();
 localStorage.setItem(USER_ID_KEY, userId);
 
 function addMessage(text, role) {
+  if (welcome) welcome.remove();
   const node = document.createElement("div");
   node.className = `message ${role}`;
   node.textContent = text;
@@ -23,8 +27,9 @@ function addMessage(text, role) {
   return node;
 }
 
-function setStatus(text) {
+function setStatus(text, mode = "") {
   status.textContent = text;
+  statusDot.className = `status-dot ${mode}`;
 }
 
 async function requestWithFailover(path, options = {}) {
@@ -53,21 +58,36 @@ async function requestWithFailover(path, options = {}) {
 async function checkHealth() {
   try {
     await requestWithFailover(HEALTH_PATH);
-    setStatus("Conectado");
+    setStatus("Conectado", "online");
   } catch {
     setStatus("Desconectado");
   }
 }
 
+function resizeInput() {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
+}
+
+input.addEventListener("input", resizeInput);
+
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    form.requestSubmit();
+  }
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message) return;
+  if (!message || send.disabled) return;
 
   addMessage(message, "user");
   input.value = "";
+  resizeInput();
   send.disabled = true;
-  setStatus("NEXO pensando...");
+  setStatus("NEXO pensando…", "busy");
 
   try {
     const response = await requestWithFailover(API_PATH, {
@@ -81,16 +101,70 @@ form.addEventListener("submit", async (event) => {
     });
 
     const data = await response.json();
-    addMessage(data.synthesis || "NEXO no devolvió una síntesis.", "assistant");
-    setStatus("Conectado");
+    addMessage(data.synthesis || "NEXO no devolvió una respuesta utilizable.", "assistant");
+    setStatus("Conectado", "online");
   } catch (error) {
     addMessage(error.message || "Error de conexión.", "error");
-    setStatus("Error");
+    setStatus("Error", "busy");
   } finally {
     send.disabled = false;
     input.focus();
   }
 });
 
+let recognition = null;
+let recording = false;
+
+if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.lang = "es-CL";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onstart = () => {
+    recording = true;
+    audio.classList.add("recording");
+    audio.setAttribute("aria-label", "Detener grabación");
+    audio.title = "Detener";
+    setStatus("Escuchando…", "busy");
+  };
+
+  recognition.onresult = (event) => {
+    let transcript = "";
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      transcript += event.results[i][0].transcript;
+    }
+    input.value = transcript;
+    resizeInput();
+  };
+
+  recognition.onerror = () => {
+    setStatus("Conectado", "online");
+  };
+
+  recognition.onend = () => {
+    recording = false;
+    audio.classList.remove("recording");
+    audio.setAttribute("aria-label", "Hablar con NEXO");
+    audio.title = "Hablar";
+    if (status.textContent === "Escuchando…") setStatus("Conectado", "online");
+    input.focus();
+  };
+
+  audio.addEventListener("click", () => {
+    if (recording) {
+      recognition.stop();
+    } else {
+      recognition.start();
+    }
+  });
+} else {
+  audio.addEventListener("click", () => {
+    addMessage("El reconocimiento de voz no está disponible en este dispositivo.", "error");
+  });
+}
+
 checkHealth();
+resizeInput();
 input.focus();
