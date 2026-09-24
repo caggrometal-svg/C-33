@@ -362,7 +362,7 @@ form.addEventListener("submit", async (event) => {
   send.disabled = true;
   transition("ONLINE", "NEXO · procesando…");
   try {
-    const result = await requestWithFailover(API_PATH, {
+    await streamChatWithFailover({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -370,14 +370,11 @@ form.addEventListener("submit", async (event) => {
         user_id: userId,
         conversation_id: conversationId,
         request_id: createId(),
-        stream: false,
+        stream: true,
         personality: nexoSettings.personality,
         voice_tone: nexoSettings.voiceTone,
       }),
     });
-    const data = result.data;
-    if (data.synthesis) addMessage(data.synthesis, "assistant");
-    else addMessage("NEXO no devolvió una respuesta utilizable.", "error");
   } catch (error) {
     addMessage(error.message || "Error de conexión.", "error");
     transition("DEGRADED", "NEXO · servicio no disponible");
