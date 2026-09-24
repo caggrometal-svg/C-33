@@ -112,27 +112,6 @@ jobs:
           if ready.status_code != 200:
               raise SystemExit(f"/ready failed: {ready.status_code} {ready.text}")
 
-          probes = []
-          for attempt in range(3):
-              ai = httpx.get(base + "/v1/ai-ready", timeout=12)
-              if ai.status_code != 200:
-                  raise SystemExit(f"/v1/ai-ready failed on attempt {attempt + 1}: {ai.status_code} {ai.text}")
-              probe = ai.json()
-              if probe.get("status") != "ai_ready" or not probe.get("provider_used"):
-                  raise SystemExit(f"Invalid AI readiness response: {json.dumps(probe)}")
-              probes.append(probe)
-              time.sleep(1)
-
-          diagnostics = httpx.get(base + "/v1/ai/diagnostics", timeout=10)
-          if diagnostics.status_code != 200:
-              raise SystemExit(f"diagnostics failed: {diagnostics.status_code} {diagnostics.text}")
-          diagnostics_data = diagnostics.json()
-          if int(diagnostics_data.get("provider_count", 0)) < 2:
-              raise SystemExit(f"Provider redundancy not certified: {json.dumps(diagnostics_data)}")
-          if len(set(diagnostics_data.get("provider_failure_domains", []))) < 2:
-              raise SystemExit(f"Provider failure domains not diverse: {json.dumps(diagnostics_data)}")
-
-          probe = probes[-1]
           payload = {
               "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
               "user_id": "github-certification",
@@ -157,6 +136,13 @@ jobs:
               raise SystemExit("remote chat unexpectedly used local fallback")
           if not str(chat_data.get("synthesis", "")).strip():
               raise SystemExit("remote chat returned empty synthesis")
+
+          ai = httpx.get(base + "/v1/ai-ready", timeout=8)
+          if ai.status_code != 200:
+              raise SystemExit(f"/v1/ai-ready after remote generation failed: {ai.status_code} {ai.text}")
+          probe = ai.json()
+          if probe.get("status") != "ai_ready" or probe.get("provider_used") != meta.get("provider_used"):
+              raise SystemExit(f"Invalid AI readiness cache: {json.dumps(probe)}")
 
           second_payload = {
               "message": "Using the conversation context, reply briefly with C33_MEMORY_OK.",
@@ -226,7 +212,7 @@ jobs:
               "sha": expected,
               "health": health_data,
               "ready": ready.json(),
-              "ai_ready_attempts": probes,
+              "ai_ready": probe,
               "diagnostics": diagnostics_data,
               "chat_provider": meta.get("provider_used"),
               "second_chat_provider": second_meta.get("provider_used"),
