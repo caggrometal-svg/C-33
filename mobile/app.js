@@ -184,7 +184,114 @@ function orderedBackends() {
   return [...new Set(result)];
 }
 
+async function streamChatWithFailover(options = {}) {
+  const started = performance.now();
+  const deadlineAt = Date.now() + CLIENT_TIMEOUT_MS;
+  const failures = [];
+
+  for (const index of orderedBackends()) {
+    const remaining = Math.max(750, deadlineAt - Date.now());
+    if (remaining <= 750) break;
+    const base = BACKEND_URLS[index];
+    if (!base) continue;
+
+    transition("ONLINE", "NEXO · " + backendRole(index) + "…");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    let receivedToken = false;
+
+    try {
+      const response = await fetch(base + "/v1/ai/stream", {
+        ...options,
+        headers: {
+          ...(options.headers || {}),
+          "Accept": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
+          "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
+        },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        let detail = "HTTP " + response.status;
+        try {
+          const body = await response.json();
+          detail = body?.detail?.reason || body?.detail || detail;
+        } catch {}
+        failures.push(backendRole(index) + ": " + detail);
+        recordBackendFailure(index, String(detail));
+        continue;
+      }
+
+      if (!response.body) throw new Error("stream_body_unavailable");
+
+      const decoder = new TextDecoder("utf-8");
+      const reader = response.body.getReader();
+      let buffer = "";
+      let finalMeta = null;
+      const assistantNode = addMessage("", "assistant");
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() || "";
+
+        for (const frame of frames) {
+          const lines = frame.split("\n");
+          let eventName = "";
+          let dataLine = "";
+          for (const line of lines) {
+            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLine += line.slice(5).trim();
+          }
+          if (!dataLine) continue;
+
+          let data;
+          try { data = JSON.parse(dataLine); }
+          catch { continue; }
+
+          if (eventName === "token" && data.text) {
+            receivedToken = true;
+            assistantNode.textContent += data.text;
+            assistantNode.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+          if (eventName === "done") finalMeta = data._meta || null;
+        }
+      }
+
+      if (!receivedToken) throw new Error("empty_stream");
+      recordBackendSuccess(index);
+      lastMeta = finalMeta;
+      const degraded = index !== 0 || Boolean(finalMeta?.failover_triggered) || finalMeta?.system_status === "DEGRADED";
+      transition(degraded ? "DEGRADED" : "AI_READY", "NEXO · " + (degraded ? "DEGRADED" : "AI_READY") + " · " + backendRole(index));
+      return { meta: finalMeta, client_latency_ms: Math.round(performance.now() - started) };
+    } catch (error) {
+      const reason = normalizeError(error);
+      failures.push(backendRole(index) + ": " + reason);
+      recordBackendFailure(index, reason);
+      if (receivedToken) {
+        throw new Error("NEXO stream interrumpido: " + reason);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw new Error("NEXO no pudo iniciar streaming. " + failures.join(" "));
+}
+
 async function requestWithFailover(path, options = {}) {
+  if (path === API_PATH && options.method === "POST") {
+    return requestWithFailoverHttp(path, options);
+  }
+  return requestWithFailoverHttp(path, options);
+}
+
+async function requestWithFailoverHttp(path, options = {}) {
   const started = performance.now();
   const deadlineAt = Date.now() + CLIENT_TIMEOUT_MS;
   const failures = [];

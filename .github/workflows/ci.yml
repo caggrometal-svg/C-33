@@ -42,7 +42,7 @@ jobs:
     env:
       RENDER_URL: https://c33-backend.onrender.com
       RAILWAY_URL: https://iac33-backup-production.up.railway.app
-      EXPECTED_SHA: \${{ github.sha }}
+      EXPECTED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
