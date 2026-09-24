@@ -99,7 +99,9 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     model_api_key = os.getenv("MODEL_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip() or None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     model_name = os.getenv("MODEL_NAME", "auto").strip() or "auto"
+    environment = os.getenv("APP_ENV", "production").strip() or "production"
     role = os.getenv("C33_ROLE", "primary").strip().lower() or "primary"
+    local_fallback_default = environment != "production"
     if not os.getenv("PUBLIC_BASE_URL", "").strip():
         legacy_public = os.getenv("IAC33_PUBLIC_BASE_URL", "").strip()
         if legacy_public:
@@ -111,7 +113,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         model_name=model_name,
         model_base_url=model_base_url,
         model_api_key=model_api_key,
-        environment=os.getenv("APP_ENV", "production").strip() or "production",
+        environment=environment,
         role=role,
         backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 18000, 1000),
         client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 22000, 1000),
@@ -126,6 +128,6 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
             or os.getenv("IAC33_REPLICATION_TOKEN_COMPAT", "").strip()
             or None
         ),
-        local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", True),
+        local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", local_fallback_default),
         require_provider_redundancy=_bool("REQUIRE_PROVIDER_REDUNDANCY", True),
     )
