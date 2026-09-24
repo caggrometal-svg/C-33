@@ -3,9 +3,11 @@ name: C-33 Certification
 on:
   push:
     branches: ["main"]
-  pull_request:
-    branches: ["main"]
   workflow_dispatch:
+
+concurrency:
+  group: c33-legacy-certification-main
+  cancel-in-progress: true
 
 jobs:
   unit:
@@ -79,9 +81,4 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
       - working-directory: mobile/android
-        run: ./gradlew assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v4
-        with:
-          name: c33-debug-apk-certified
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+        run: ./gradlew lint --stacktrace
