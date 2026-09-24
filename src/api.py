@@ -377,6 +377,12 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
 
     result, _, generation_failure = await _run_with_disconnect(request, work())
     if generation_failure:
+        allow_local_fallback = request.headers.get("X-C33-Allow-Local-Fallback", "true").strip().lower() in {"1", "true", "yes", "on"}
+        if not allow_local_fallback:
+            raise HTTPException(
+                status_code=generation_failure.http_status,
+                detail={"reason": generation_failure.reason, "attempts": generation_failure.attempts, "used_local_fallback": False},
+            )
         if config.local_fallback_enabled:
             synthesis = b.local_fallback(effective_payload.message, generation_failure.reason)
             meta = {
@@ -517,7 +523,8 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                     "_meta":{"final_reason":exc.reason,"system_status":"DEGRADED","used_local_fallback":False},
                 }, ensure_ascii=False) + "\n\n"
                 return
-            if not config.local_fallback_enabled:
+            allow_local_fallback = request.headers.get("X-C33-Allow-Local-Fallback", "true").strip().lower() in {"1", "true", "yes", "on"}
+            if not allow_local_fallback or not config.local_fallback_enabled:
                 yield "event: error\n"
                 yield "data: " + json.dumps({"reason":exc.reason,"_meta":{"final_reason":exc.reason,"used_local_fallback":False}}, ensure_ascii=False) + "\n\n"
                 return
