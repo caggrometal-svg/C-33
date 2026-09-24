@@ -13,9 +13,98 @@ const audio = document.getElementById("audio");
 const status = document.getElementById("status");
 const statusDot = document.getElementById("status-dot");
 const welcome = document.getElementById("welcome");
+const settings = document.getElementById("settings");
+const settingsOpen = document.getElementById("settings-open");
+const settingsClose = document.getElementById("settings-close");
+const voiceTone = document.getElementById("voice-tone");
+const colorVariety = document.getElementById("color-variety");
+const fontSize = document.getElementById("font-size");
+const personalityOptions = [...document.querySelectorAll("[data-personality]")];
 
 const userId = localStorage.getItem(USER_ID_KEY) || crypto.randomUUID();
 localStorage.setItem(USER_ID_KEY, userId);
+
+const SETTINGS_KEY = "C33_NEXO_SETTINGS";
+const defaultSettings = {
+  voiceTone: "neutral",
+  colorVariety: false,
+  fontSize: "medium",
+  personality: "aggressive",
+};
+
+function loadSettings() {
+  try {
+    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+  } catch {
+    return { ...defaultSettings };
+  }
+}
+
+const nexoSettings = loadSettings();
+
+function saveSettings() {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(nexoSettings));
+}
+
+function applySettings() {
+  document.body.classList.remove("font-small", "font-medium", "font-large", "font-xl");
+  document.body.classList.add(`font-${nexoSettings.fontSize}`);
+  document.body.classList.toggle("color-variety", nexoSettings.colorVariety);
+
+  voiceTone.value = nexoSettings.voiceTone;
+  colorVariety.checked = nexoSettings.colorVariety;
+  fontSize.value = nexoSettings.fontSize;
+
+  personalityOptions.forEach((button) => {
+    const selected = button.dataset.personality === nexoSettings.personality;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+}
+
+function setSettingsOpen(open) {
+  settings.classList.toggle("open", open);
+  settings.setAttribute("aria-hidden", String(!open));
+  if (open) settingsClose.focus();
+  else settingsOpen.focus();
+}
+
+settingsOpen.addEventListener("click", () => setSettingsOpen(true));
+settingsClose.addEventListener("click", () => setSettingsOpen(false));
+settings.querySelector("[data-settings-close]").addEventListener("click", () => setSettingsOpen(false));
+
+voiceTone.addEventListener("change", () => {
+  nexoSettings.voiceTone = voiceTone.value;
+  saveSettings();
+});
+
+colorVariety.addEventListener("change", () => {
+  nexoSettings.colorVariety = colorVariety.checked;
+  applySettings();
+  saveSettings();
+});
+
+fontSize.addEventListener("change", () => {
+  nexoSettings.fontSize = fontSize.value;
+  applySettings();
+  saveSettings();
+});
+
+personalityOptions.forEach((button) => {
+  button.addEventListener("click", () => {
+    nexoSettings.personality = button.dataset.personality;
+    applySettings();
+    saveSettings();
+  });
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && settings.classList.contains("open")) {
+    setSettingsOpen(false);
+  }
+});
+
+applySettings();
 
 function addMessage(text, role) {
   if (welcome) welcome.remove();
@@ -97,6 +186,8 @@ form.addEventListener("submit", async (event) => {
         message,
         user_id: userId,
         stream: false,
+        personality: nexoSettings.personality,
+        voice_tone: nexoSettings.voiceTone,
       }),
     });
 
