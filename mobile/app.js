@@ -89,42 +89,44 @@ function setSettingsOpen(open) {
   else settingsOpen.focus();
 }
 
-settingsOpen.addEventListener("click", () => setSettingsOpen(true));
-settingsClose.addEventListener("click", () => setSettingsOpen(false));
-settings.querySelector("[data-settings-close]").addEventListener("click", () => setSettingsOpen(false));
+if (settings && settingsOpen && settingsClose && voiceTone && colorVariety && fontSize) {
+  settingsOpen.addEventListener("click", () => setSettingsOpen(true));
+  settingsClose.addEventListener("click", () => setSettingsOpen(false));
+  settings.querySelector("[data-settings-close]")?.addEventListener("click", () => setSettingsOpen(false));
 
-voiceTone.addEventListener("change", () => {
-  nexoSettings.voiceTone = voiceTone.value;
-  saveSettings();
-});
+  voiceTone.addEventListener("change", () => {
+    nexoSettings.voiceTone = voiceTone.value;
+    saveSettings();
+  });
 
-colorVariety.addEventListener("change", () => {
-  nexoSettings.colorVariety = colorVariety.checked;
-  applySettings();
-  saveSettings();
-});
-
-fontSize.addEventListener("change", () => {
-  nexoSettings.fontSize = fontSize.value;
-  applySettings();
-  saveSettings();
-});
-
-personalityOptions.forEach((button) => {
-  button.addEventListener("click", () => {
-    nexoSettings.personality = button.dataset.personality;
+  colorVariety.addEventListener("change", () => {
+    nexoSettings.colorVariety = colorVariety.checked;
     applySettings();
     saveSettings();
   });
-});
 
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && settings.classList.contains("open")) {
-    setSettingsOpen(false);
-  }
-});
+  fontSize.addEventListener("change", () => {
+    nexoSettings.fontSize = fontSize.value;
+    applySettings();
+    saveSettings();
+  });
 
-applySettings();
+  personalityOptions.forEach((button) => {
+    button.addEventListener("click", () => {
+      nexoSettings.personality = button.dataset.personality;
+      applySettings();
+      saveSettings();
+    });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && settings.classList.contains("open")) {
+      setSettingsOpen(false);
+    }
+  });
+
+  applySettings();
+}
 
 function addMessage(text, role) {
   if (welcome) welcome.remove();
@@ -144,12 +146,16 @@ function setStatus(text, mode = "") {
 async function requestWithFailover(path, options = {}) {
   let lastError = new Error("Todos los servidores están desconectados.");
   const isChat = path === API_PATH;
-  const timeoutMs = isChat ? 90000 : 10000;
+  const timeoutMs = isChat ? 5000 : 10000;
+  const deadline = Date.now() + timeoutMs;
 
   for (const baseUrl of BACKEND_URLS) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      const timeout = setTimeout(() => controller.abort(), remainingMs);
       try {
         const response = await fetch(`${baseUrl}${path}`, {
           ...options,
@@ -164,7 +170,7 @@ async function requestWithFailover(path, options = {}) {
       if (error?.name === "AbortError") {
         lastError = new Error(
           isChat
-            ? "NEXO tardó demasiado en responder. El servidor sigue procesando la solicitud."
+            ? "NEXO no respondió dentro de 5 segundos."
             : "Tiempo de conexión agotado.",
         );
       } else {
