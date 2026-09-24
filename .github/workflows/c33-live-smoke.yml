@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: c33-live-smoke-main
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -48,13 +52,6 @@ jobs:
           if ready.status_code != 200:
               raise SystemExit(f"/ready {ready.status_code}: {ready.text}")
 
-          ai = httpx.get(base + "/v1/ai-ready", timeout=15)
-          if ai.status_code != 200:
-              raise SystemExit(f"/v1/ai-ready {ai.status_code}: {ai.text}")
-          ai_data = ai.json()
-          if ai_data.get("status") != "ai_ready":
-              raise SystemExit(f"AI not ready: {ai_data}")
-
           cid = "smoke-" + uuid.uuid4().hex
           payload = {
               "message": "Reply exactly C33_LIVE_OK.",
@@ -74,6 +71,13 @@ jobs:
           cm = cd.get("_meta") or {}
           if cm.get("used_local_fallback") or not str(cd.get("synthesis", "")).strip():
               raise SystemExit(f"remote chat invalid: {cd}")
+
+          ai = httpx.get(base + "/v1/ai-ready", timeout=8)
+          if ai.status_code != 200:
+              raise SystemExit(f"/v1/ai-ready after remote chat {ai.status_code}: {ai.text}")
+          ai_data = ai.json()
+          if ai_data.get("status") != "ai_ready" or ai_data.get("provider_used") != cm.get("provider_used"):
+              raise SystemExit(f"AI readiness cache invalid: {ai_data}")
 
           payload2 = {
               **payload,
