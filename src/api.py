@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -35,6 +36,8 @@ brain: Brain | None = None
 cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
 remote_ai_ready: tuple[float, dict[str, Any]] | None = None
+logger = logging.getLogger("nexo.c33")
+READINESS_PROBE_TIMEOUT_SECONDS = 3.0
 
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_GENERATION = 30
@@ -212,6 +215,7 @@ async def ready() -> ReadyResponse:
         try:
             cascade.assert_ready_configuration()
         except GenerationFailure as exc:
+        logger.warning("[NEXO_DEBUG_READY] probe_failed reason=%s http_status=%s attempts=%s", exc.reason, exc.http_status, exc.attempts)
             raise HTTPException(status_code=503, detail={"status":"not_ready","reason":exc.reason}) from exc
     return ReadyResponse(
         status="ready", service="C-33", deployment_sha=_deployment_sha(), database="ok",
@@ -265,17 +269,20 @@ async def ai_diagnostics() -> dict[str, Any]:
 async def ai_ready(request: Request) -> dict[str, Any]:
     """Actively validate the remote AI path with a bounded, non-fallback probe."""
     await _enforce_rate_limit(request, "ai-ready", _RATE_LIMIT_AI_READY)
+    logger.info("[NEXO_DEBUG_READY] start")
     global remote_ai_ready
     _require_runtime()
     cached = remote_ai_ready
     if cached and cached[0] > time.monotonic():
+        logger.info("[NEXO_DEBUG_READY] cache_hit provider=%s latency_ms=%s", cached[1].get("provider_used"), cached[1].get("latency_ms"))
         return dict(cached[1])
 
     remote_ai_ready = None
     probe_budget = DeadlineBudget(
-        min(config.backend_total_timeout_ms, 7000),
-        int((time.time() + min(config.backend_total_timeout_ms, 7000) / 1000) * 1000),
+        min(config.backend_total_timeout_ms, int(READINESS_PROBE_TIMEOUT_SECONDS * 1000)),
+        int((time.time() + min(config.backend_total_timeout_ms, int(READINESS_PROBE_TIMEOUT_SECONDS * 1000)) / 1000) * 1000),
     )
+    logger.info("[NEXO_DEBUG_READY] probe_begin timeout_s=%.1f configured_backend_timeout_ms=%s", READINESS_PROBE_TIMEOUT_SECONDS, config.backend_total_timeout_ms)
     try:
         result = await asyncio.wait_for(
             cascade.complete(
@@ -283,7 +290,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
                 probe_budget,
                 probe=True,
             ),
-            timeout=min(7.0, config.backend_total_timeout_ms / 1000),
+            timeout=min(READINESS_PROBE_TIMEOUT_SECONDS, config.backend_total_timeout_ms / 1000),
         )
     except GenerationFailure as exc:
         raise HTTPException(
@@ -296,6 +303,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
             },
         ) from exc
     except asyncio.TimeoutError as exc:
+        logger.warning("[NEXO_DEBUG_READY] probe_timeout")
         raise HTTPException(
             status_code=503,
             detail={
@@ -305,6 +313,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
             },
         ) from exc
 
+    logger.info("[NEXO_DEBUG_READY] probe_success provider=%s model=%s latency_ms=%s failover=%s", result.meta.provider_used, result.meta.model, result.meta.latency_ms, result.meta.failover_triggered)
     remote_ai_ready = (
         time.monotonic() + 15.0,
         {
@@ -477,6 +486,8 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     await _enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)
     st, b, providers = _require_runtime()
     request_id = payload.request_id.strip() or os.urandom(12).hex()
+    fingerprint = hashlib.sha256(payload.message.encode("utf-8")).hexdigest()[:12]
+    logger.info("[NEXO_DEBUG_STREAM] start request_id=%s conversation_id=%s fingerprint=%s", request_id, payload.conversation_id, fingerprint)
 
     existing = await st.existing_assistant_for_request(payload.conversation_id, request_id)
     if existing:
@@ -501,7 +512,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
         return StreamingResponse(
             replay_events(),
             media_type="text/event-stream",
-            headers={"Cache-Control":"no-cache","Connection":"keep-alive","X-Accel-Buffering":"no"},
+            headers={"Cache-Control":"no-cache, no-transform","Connection":"keep-alive","X-Accel-Buffering":"no"},
         )
 
     await st.append_message(
@@ -517,6 +528,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     except ValueError: deadline_epoch = None
     budget = DeadlineBudget(config.backend_total_timeout_ms, deadline_epoch)
 
+    logger.info("[NEXO_DEBUG_STREAM] prepare_begin request_id=%s", request_id)
     messages, sources, _ = await _run_with_disconnect(
         request,
         b.prepare_messages(
@@ -527,6 +539,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
             budget=budget,
         ),
     )
+    logger.info("[NEXO_DEBUG_STREAM] prepare_done request_id=%s remaining_ms=%s sources=%s", request_id, budget.remaining_ms, len(sources))
     if budget.remaining_ms <= 0:
         raise HTTPException(status_code=504, detail={"reason":"backend_deadline_exceeded"})
 
@@ -546,14 +559,18 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
 
         watcher = asyncio.create_task(cancel_on_disconnect())
         try:
+            logger.info("[NEXO_DEBUG_STREAM] provider_stream_begin request_id=%s remaining_ms=%s", request_id, budget.remaining_ms)
             async for piece, meta in providers.stream(messages, budget):
                 if await request.is_disconnected():
                     return
                 stream_meta = meta
+                if not pieces:
+                    logger.info("[NEXO_DEBUG_STREAM] first_token request_id=%s provider=%s model=%s", request_id, meta.provider_used, meta.model)
                 pieces.append(piece)
                 yield "event: token\n"
                 yield "data: " + json.dumps({"text":piece}, ensure_ascii=False) + "\n\n"
             final = "".join(pieces).strip()
+            logger.info("[NEXO_DEBUG_STREAM] provider_stream_complete request_id=%s chars=%s provider=%s failover=%s remaining_ms=%s", request_id, len(final), stream_meta.provider_used if stream_meta else "unknown", stream_meta.failover_triggered if stream_meta else None, budget.remaining_ms)
             if not final or stream_meta is None:
                 raise GenerationFailure("empty_stream", http_status=502, attempts=[])
             global remote_ai_ready
@@ -594,6 +611,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
             yield "event: done\n"
             yield "data: " + json.dumps({"_meta":final_meta}, ensure_ascii=False) + "\n\n"
         except GenerationFailure as exc:
+            logger.warning("[NEXO_DEBUG_STREAM] generation_failure request_id=%s reason=%s http_status=%s attempts=%s pieces=%s remaining_ms=%s", request_id, exc.reason, exc.http_status, exc.attempts, len(pieces), budget.remaining_ms)
             if await request.is_disconnected():
                 return
             if pieces:
@@ -608,6 +626,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 yield "event: error\n"
                 yield "data: " + json.dumps({"reason":exc.reason,"_meta":{"final_reason":exc.reason,"used_local_fallback":False}}, ensure_ascii=False) + "\n\n"
                 return
+            logger.warning("[NEXO_DEBUG_STREAM] fallback_activate request_id=%s reason=%s", request_id, exc.reason)
             fallback = b.local_fallback(payload.message, exc.reason)
             fallback_meta = {
                 "provider_used":"local",
