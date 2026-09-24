@@ -132,7 +132,7 @@ class ProviderCascade:
             elif "blockrun.ai" in a_host:
                 b_base, b_host, b_model = "https://vireonix.ai/v1", "vireonix.ai", "auto"
             else:
-                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/gpt-oss-20b"
+                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/nemotron-3.5-lightning"
 
             specs.append(
                 ProviderSpec(
@@ -307,7 +307,16 @@ class ProviderCascade:
             except ValueError: retry_after_ms=0
             raise GenerationFailure("rate_limited",http_status=429,attempts=[],retry_after_ms=retry_after_ms)
         if status in {401,403}: raise GenerationFailure("auth_error",http_status=status,attempts=[])
-        if status==400: raise GenerationFailure("bad_request",http_status=400,attempts=[])
+        if status==400:
+            detail = ""
+            try:
+                body = response.json()
+                error = body.get("error", {}) if isinstance(body, dict) else {}
+                detail = str(error.get("message") or body.get("message") or "")[:180]
+            except ValueError:
+                detail = response.text[:180].strip()
+            reason = "bad_request" if not detail else "bad_request:" + detail
+            raise GenerationFailure(reason,http_status=400,attempts=[])
         if status==408: raise GenerationFailure("timeout",http_status=408,attempts=[])
         if 500<=status<=599: raise GenerationFailure("provider_5xx",http_status=status,attempts=[])
         if not 200<=status<=299: raise GenerationFailure(f"provider_http_{status}",http_status=status,attempts=[])
