@@ -18,6 +18,8 @@ jobs:
   backend:
     name: Backend unit/resilience
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
