@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -32,7 +31,7 @@ db_pool: asyncpg.Pool | None = None
 async def _database_check() -> bool:
     """Validate that PostgreSQL is reachable from the running service."""
     if db_pool is None:
-        return False
+        return config.database_url is None
     try:
         async with db_pool.acquire() as connection:
             await connection.fetchval("SELECT 1")
@@ -41,8 +40,10 @@ async def _database_check() -> bool:
         return False
 
 
-async def _initialize_database() -> asyncpg.Pool:
-    """Create a bounded PostgreSQL pool using the deployment DATABASE_URL."""
+async def _initialize_database() -> asyncpg.Pool | None:
+    """Create a bounded PostgreSQL pool when DATABASE_URL is configured."""
+    if not config.database_url:
+        return None
     return await asyncpg.create_pool(
         dsn=config.database_url,
         min_size=1,
@@ -89,11 +90,11 @@ brain = build_brain()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Open and close the Railway/Render PostgreSQL pool with the app lifecycle."""
+    """Open and close PostgreSQL when configured; keep edge mode stateless otherwise."""
     global db_pool
     db_pool = await _initialize_database()
     try:
-        if not await _database_check():
+        if config.database_url and not await _database_check():
             raise RuntimeError("DATABASE_URL is configured but PostgreSQL is unreachable")
         yield
     finally:
@@ -139,10 +140,7 @@ class ChatResponse(BaseModel):
 
 
 async def _chat(payload: ChatRequest) -> ChatResponse:
-    """Run Brain.process after confirming the infrastructure database is healthy."""
-    if not await _database_check():
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
+    """Run Brain.process."""
     try:
         result: AgentResult = await brain.process(payload.message)
     except ValueError as exc:
@@ -170,12 +168,15 @@ async def _chat(payload: ChatRequest) -> ChatResponse:
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    """Healthcheck with process and PostgreSQL state."""
+    """Healthcheck with process and optional PostgreSQL state."""
     database_ok = await _database_check()
+    database_state = "ok" if config.database_url and database_ok else (
+        "not_configured" if config.database_url is None else "unavailable"
+    )
     return {
         "status": "ok" if database_ok else "degraded",
         "service": "C-33",
-        "database": "ok" if database_ok else "unavailable",
+        "database": database_state,
     }
 
 
@@ -183,11 +184,15 @@ async def health() -> dict[str, Any]:
 async def status() -> dict[str, Any]:
     """Runtime status with infrastructure and model state."""
     database_ok = await _database_check()
+    database_state = "ok" if config.database_url and database_ok else (
+        "not_configured" if config.database_url is None else "unavailable"
+    )
     return {
         "status": "ok" if database_ok else "degraded",
         "service": "C-33",
-        "database": "ok" if database_ok else "unavailable",
+        "database": database_state,
         "ai": "configured" if brain.model is not None else "local-fallback",
+        "internet": "available",
         "environment": config.environment,
     }
 
