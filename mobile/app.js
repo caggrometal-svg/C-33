@@ -277,7 +277,7 @@ async function streamChatWithFailover(options = {}) {
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, "\n");
         const frames = buffer.split("\n\n");
         buffer = frames.pop() || "";
 
