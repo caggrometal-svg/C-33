@@ -1,0 +1,107 @@
+name: C-33 Render Secondary Certification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    name: Render secondary certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      BASE_URL: https://c33-backend.onrender.com
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx
+      - name: Certify Render
+        run: |
+          python - <<'PY'
+          import json, os, time, uuid
+          import httpx
+
+          base = os.environ["BASE_URL"].rstrip("/")
+          expected = os.environ["EXPECTED_SHA"]
+          deadline = time.time() + 180
+
+          while time.time() < deadline:
+              try:
+                  h = httpx.get(base + "/health", timeout=8)
+                  data = h.json()
+                  if h.status_code == 200 and data.get("status") == "alive" and data.get("deployment_sha") == expected:
+                      break
+              except Exception:
+                  pass
+              time.sleep(5)
+          else:
+              raise SystemExit("Render did not expose the expected live SHA")
+
+          ready = httpx.get(base + "/ready", timeout=10)
+          if ready.status_code != 200:
+              raise SystemExit(f"/ready failed: {ready.status_code} {ready.text}")
+
+          diagnostics = httpx.get(base + "/v1/ai/diagnostics", timeout=10)
+          if diagnostics.status_code != 200:
+              raise SystemExit(f"diagnostics failed: {diagnostics.status_code} {diagnostics.text}")
+          d = diagnostics.json()
+          if int(d.get("provider_count", 0)) < 2 or len(set(d.get("provider_failure_domains", []))) < 2:
+              raise SystemExit(f"Provider redundancy not certified: {json.dumps(d)}")
+
+          ai = httpx.get(base + "/v1/ai-ready", timeout=12)
+          if ai.status_code != 200 or ai.json().get("status") != "ai_ready":
+              raise SystemExit(f"/v1/ai-ready failed: {ai.status_code} {ai.text}")
+
+          payload = {
+              "message": "Reply briefly with C33_RENDER_OK.",
+              "user_id": "github-render-certification",
+              "conversation_id": "render-" + uuid.uuid4().hex,
+              "request_id": uuid.uuid4().hex,
+              "stream": False,
+          }
+          chat = httpx.post(
+              base + "/v1/chat",
+              json=payload,
+              headers={
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          )
+          if chat.status_code != 200:
+              raise SystemExit(f"/v1/chat failed: {chat.status_code} {chat.text}")
+          cd = chat.json()
+          if not str(cd.get("synthesis", "")).strip() or cd.get("_meta", {}).get("used_local_fallback"):
+              raise SystemExit("Render chat was empty or used local fallback")
+
+          with httpx.stream(
+              "POST",
+              base + "/v1/ai/stream",
+              json={**payload, "stream": True, "message": "Reply briefly with C33_RENDER_SSE_OK."},
+              headers={
+                  "Accept": "text/event-stream",
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          ) as stream:
+              if stream.status_code != 200:
+                  raise SystemExit(f"Render SSE failed: {stream.status_code}")
+              token = done = fallback = False
+              for line in stream.iter_lines():
+                  if line.startswith("event: token"):
+                      token = True
+                  elif line.startswith("event: done"):
+                      done = True
+                  elif line.startswith("event: fallback"):
+                      fallback = True
+              if not token or not done or fallback:
+                  raise SystemExit(f"Render SSE incomplete: token={token} done={done} fallback={fallback}")
+
+          print("C33_RENDER_SECONDARY_CERTIFICATION_PASS")
+          PY
