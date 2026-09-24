@@ -21,7 +21,20 @@ const colorVariety = document.getElementById("color-variety");
 const fontSize = document.getElementById("font-size");
 const personalityOptions = [...document.querySelectorAll("[data-personality]")];
 
-const userId = localStorage.getItem(USER_ID_KEY) || crypto.randomUUID();
+function createUserId() {
+  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+  if (window.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
+    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
+  }
+  return `c33-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+const userId = localStorage.getItem(USER_ID_KEY) || createUserId();
 localStorage.setItem(USER_ID_KEY, userId);
 
 const SETTINGS_KEY = "C33_NEXO_SETTINGS";
