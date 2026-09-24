@@ -204,13 +204,12 @@ class ProviderCascade:
         for index, spec in enumerate(self.providers):
             if budget.remaining_ms < 1000:
                 break
-            decision = await self.state.circuit_before_call(spec.provider_id)
-            if not decision.allowed:
-                attempts.append({"provider": spec.provider_id, "reason": "circuit_open", "cooldown_ms": decision.cooldown_ms})
-                continue
+            # Readiness is also the recovery probe: an OPEN circuit must be re-tested
+            # here so a recovered provider can close its circuit without waiting for a
+            # long cooldown from a previous incident.
             candidates.append((index, spec))
         if not candidates:
-            raise GenerationFailure(self._final_reason(attempts), http_status=503, attempts=attempts)
+            raise GenerationFailure("no_provider_available", http_status=503, attempts=attempts)
 
         async def run(index: int, spec: ProviderSpec) -> tuple[int, ProviderSpec, GenerationResult | None, GenerationFailure | None, int]:
             started = time.monotonic()
