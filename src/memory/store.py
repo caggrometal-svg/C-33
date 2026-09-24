@@ -71,7 +71,11 @@ class MemoryStore:
             tags=sorted({tag.strip().lower() for tag in (tags or []) if tag.strip()}),
             debate_topic=debate_topic.strip(),
             user_position=user_position.strip(),
-            central_arguments=[item.strip() for item in (central_arguments or []) if item.strip()],
+            central_arguments=[
+                item.strip()
+                for item in (central_arguments or [])
+                if item.strip()
+            ],
         )
         async with self._lock:
             entries = await asyncio.to_thread(self._load_sync)
@@ -105,7 +109,15 @@ class MemoryStore:
                 continue
             haystack = self._normalize(
                 " ".join(
-                    [entry.user_text, entry.assistant_text, entry.summary, *entry.tags]
+                    [
+                        entry.user_text,
+                        entry.assistant_text,
+                        entry.summary,
+                        entry.debate_topic,
+                        entry.user_position,
+                        *entry.central_arguments,
+                        *entry.tags,
+                    ]
                 )
             )
             score = sum(1 for token in tokens if token in haystack)
@@ -153,7 +165,9 @@ class MemoryStore:
                         tags=[str(tag) for tag in item.get("tags", [])],
                         debate_topic=str(item.get("debate_topic", "")),
                         user_position=str(item.get("user_position", "")),
-                        central_arguments=[str(value) for value in item.get("central_arguments", [])],
+                        central_arguments=[
+                            str(value) for value in item.get("central_arguments", [])
+                        ],
                     )
                 )
             except (KeyError, TypeError, ValueError):
