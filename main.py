@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 
-from core.agent import Agent
-from core.memory import InMemoryMemory
-from core.tools import ToolRegistry
+from agent.base import Agent
+from memory.base import InMemoryMemory
+from tools.registry import ToolRegistry
 
 app = FastAPI(title="C-33", version="0.1.0")
 
@@ -16,5 +16,4 @@ async def health() -> dict[str, str]:
 
 @app.post("/agent/run")
 async def run_agent(prompt: str) -> dict[str, object]:
-    result = await agent.run(prompt)
-    return result
+    return await agent.run(prompt)

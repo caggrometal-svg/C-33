@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from core.memory import Memory
-from core.tools import ToolRegistry
+from memory.base import Memory
+from tools.registry import ToolRegistry
 
 
 class Reasoner(Protocol):
