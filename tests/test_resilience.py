@@ -28,6 +28,10 @@ class FaultTransport(httpx.AsyncBaseTransport):
         behavior = self.responses[provider]
         if behavior == "timeout":
             raise httpx.ReadTimeout("synthetic timeout", request=request)
+        if behavior == "dns":
+            raise httpx.ConnectError("Name or service not known", request=request)
+        if behavior == "tls":
+            raise httpx.ConnectError("SSL: CERTIFICATE_VERIFY_FAILED", request=request)
         if behavior == "429":
             return httpx.Response(429, headers={"retry-after":"2"}, request=request)
         if behavior == "502":
@@ -47,6 +51,26 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_deadline_is_bounded_by_client(self):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
         self.assertLessEqual(budget.remaining_ms, 5000)
+
+    async def test_dns_failure_fails_over(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"dns","b.test":"ok"}))
+        result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
+        self.assertEqual(result.meta.provider_used, "b")
+
+    async def test_tls_failure_fails_over(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"tls","b.test":"ok"}))
+        result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
+        self.assertEqual(result.meta.provider_used, "b")
 
     async def test_5xx_fails_over_to_second_provider(self):
         state = FakeState()
