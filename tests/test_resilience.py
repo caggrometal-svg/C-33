@@ -33,6 +33,8 @@ class FaultTransport(httpx.AsyncBaseTransport):
             raise httpx.ConnectError("Name or service not known", request=request)
         if behavior == "tls":
             raise httpx.ConnectError("SSL: CERTIFICATE_VERIFY_FAILED", request=request)
+        if behavior == "connection":
+            raise httpx.ConnectError("connection reset by peer", request=request)
         if behavior == "429":
             return httpx.Response(429, headers={"retry-after":"2"}, request=request)
         if behavior == "502":
@@ -43,6 +45,13 @@ class FaultTransport(httpx.AsyncBaseTransport):
             return httpx.Response(
                 200,
                 content=b'data: {"choices":[{"delta":{"content":"C33_STREAM_OK"}}]}\n\ndata: [DONE]\n\n',
+                headers={"content-type":"text/event-stream"},
+                request=request,
+            )
+        if behavior == "stream_empty":
+            return httpx.Response(
+                200,
+                content=b'data: [DONE]\n\n',
                 headers={"content-type":"text/event-stream"},
                 request=request,
             )
@@ -99,6 +108,53 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(result.text, "C33_OK")
         self.assertEqual(result.meta.provider_used, "b")
+
+    async def _assert_stream_failover(self, first_behavior):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=FaultTransport({"a.test": first_behavior, "b.test": "stream_ok"}),
+        )
+        pieces = []
+        async for piece, _ in cascade.stream([{"role": "user", "content": "x"}], DeadlineBudget(5000)):
+            pieces.append(piece)
+        self.assertEqual("".join(pieces), "C33_STREAM_OK")
+        self.assertEqual(state.successes[-1], "b")
+        self.assertEqual(state.failures[0][1], first_behavior)
+
+    async def test_stream_dns_failure_fails_over(self):
+        await self._assert_stream_failover("dns")
+
+    async def test_stream_tls_failure_fails_over(self):
+        await self._assert_stream_failover("tls")
+
+    async def test_stream_connection_failure_fails_over(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=FaultTransport({"a.test": "connection", "b.test": "stream_ok"}),
+        )
+        pieces = []
+        async for piece, _ in cascade.stream([{"role": "user", "content": "x"}], DeadlineBudget(5000)):
+            pieces.append(piece)
+        self.assertEqual("".join(pieces), "C33_STREAM_OK")
+        self.assertEqual(state.successes[-1], "b")
+        self.assertEqual(state.failures[0][1], "connection_reset")
+
+    async def test_stream_empty_fails_over(self):
+        await self._assert_stream_failover("stream_empty")
 
     async def test_stream_fails_over_to_second_provider(self):
         state = FakeState()
