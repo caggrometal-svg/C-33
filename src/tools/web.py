@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
+import logging
 import re
+import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import httpx
+
+logger = logging.getLogger("nexo.c33.web")
 
 
 @dataclass(slots=True)
@@ -176,18 +181,42 @@ class WebTool:
         if not query:
             return []
 
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-            headers=self._headers,
-        ) as client:
-            response = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
+        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
+        started = time.monotonic()
+        logger.info(
+            "[NEXO_DEBUG_WEB] search_begin query_hash=%s timeout_s=%.2f host=html.duckduckgo.com",
+            query_hash,
+            self.timeout,
+        )
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=True,
+                headers=self._headers,
+            ) as client:
+                response = await client.get(
+                    "https://html.duckduckgo.com/html/",
+                    params={"q": query},
+                )
+                response.raise_for_status()
+                results = self._parse_search_results(response.text)[: self.max_results]
+        except Exception as exc:
+            logger.warning(
+                "[NEXO_DEBUG_WEB] search_failed query_hash=%s error_class=%s latency_ms=%s",
+                query_hash,
+                type(exc).__name__,
+                int((time.monotonic() - started) * 1000),
             )
-            response.raise_for_status()
+            raise
 
-        return self._parse_search_results(response.text)[: self.max_results]
+        logger.info(
+            "[NEXO_DEBUG_WEB] search_success query_hash=%s status=%s results=%s latency_ms=%s",
+            query_hash,
+            response.status_code,
+            len(results),
+            int((time.monotonic() - started) * 1000),
+        )
+        return results
 
     async def fetch(self, url: str) -> WebPage:
         """Fetch a URL, extract visible text, and build a short deterministic summary."""
