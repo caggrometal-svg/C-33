@@ -278,6 +278,35 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     os.environ[key] = value
 
+    def test_explicit_order_excludes_stale_legacy_provider(self):
+        previous = {key: os.environ.get(key) for key in (
+            "AI_PROVIDERS_JSON",
+            "AI_PROVIDER_ORDER",
+            "AI_DISABLED_PROVIDERS",
+            "REQUIRE_PROVIDER_REDUNDANCY",
+        )}
+        try:
+            os.environ["AI_PROVIDERS_JSON"] = (
+                '[{"id":"kilo-m3-free","base_url":"https://api.kilo.ai/api/gateway","model":"legacy",'
+                '"failure_domain":"kilo.ai","timeout_ms":5500},'
+                '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
+                '"failure_domain":"animica.dev","timeout_ms":5750},'
+                '{"id":"blockrun-cohere","base_url":"https://blockrun.ai/api/v1","model":"legacy",'
+                '"failure_domain":"blockrun.ai","timeout_ms":4000}]'
+            )
+            os.environ["AI_PROVIDER_ORDER"] = "kilo,animica"
+            os.environ["AI_DISABLED_PROVIDERS"] = ""
+            os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
+            cascade = ProviderCascade.from_environment(FakeState())
+            self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "animica"])
+            self.assertEqual(cascade.providers[0].model, "kilo-auto/free")
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_redundancy_configuration_rejects_single_provider(self):
         previous = os.environ.get("REQUIRE_PROVIDER_REDUNDANCY")
         os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "true"
