@@ -25,7 +25,7 @@ if _SRC_DIR not in __import__("sys").path:
 
 from agent.brain import AgentResult, Brain
 from config import InfrastructureConfig, load_infrastructure_config
-from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade
+from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError
 from resilience.state import PostgresState
 from tools.web import WebTool
 
@@ -171,6 +171,25 @@ async def lifespan(_: FastAPI):
         state = PostgresState(db_pool)
         await state.initialize()
         cascade = ProviderCascade.from_environment(state)
+        try:
+            cascade.validate_configuration()
+        except ProviderConfigurationError:
+            logger.exception(
+                "[NEXO_DEBUG_CONFIG] provider_configuration_invalid "
+                "deployment_sha=%s environment=%s",
+                _deployment_sha(),
+                config.environment,
+            )
+            raise
+        logger.info(
+            "[NEXO_DEBUG_CONFIG] provider_configuration_valid ids=%s "
+            "count=%s failure_domains=%s redundancy_required=%s local_fallback_enabled=%s",
+            cascade.configured_provider_ids,
+            cascade.configured_provider_count,
+            cascade.failure_domains,
+            cascade.require_redundancy,
+            config.local_fallback_enabled,
+        )
         brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
         replication_task = asyncio.create_task(_replication_loop())
     try:
@@ -259,7 +278,14 @@ async def ai_diagnostics() -> dict[str, Any]:
         "status":"ok",
         "deployment_sha":_deployment_sha(),
         "provider_count":cascade.configured_provider_count,
+        "providers_configured":cascade.configured_provider_count,
+        "providers_ordered":cascade.configured_provider_count,
+        "providers_selectable":cascade.configured_provider_count,
+        "provider_order":cascade.configured_provider_ids,
         "provider_failure_domains":cascade.failure_domains,
+        "provider_configuration_valid":True,
+        "local_fallback_enabled":config.local_fallback_enabled,
+        "last_successful_provider":(remote_ai_ready[1].get("provider_used") if remote_ai_ready else None),
         "providers":await state.all_circuit_snapshots([p.provider_id for p in cascade.providers]),
         "peer_status":await _peer_probe(),
         "replication_pending":await state.replication_pending_count(),
@@ -272,11 +298,8 @@ async def ai_ready(request: Request) -> dict[str, Any]:
     logger.info("[NEXO_DEBUG_READY] start")
     global remote_ai_ready
     _require_runtime()
-    cached = remote_ai_ready
-    if cached and cached[0] > time.monotonic():
-        logger.info("[NEXO_DEBUG_READY] cache_hit provider=%s latency_ms=%s", cached[1].get("provider_used"), cached[1].get("latency_ms"))
-        return dict(cached[1])
-
+    # /v1/ai-ready is a hard live probe. A cached success must never masquerade
+    # as current provider readiness.
     remote_ai_ready = None
     probe_budget = DeadlineBudget(
         min(config.backend_total_timeout_ms, int(READINESS_PROBE_TIMEOUT_SECONDS * 1000)),
@@ -610,6 +633,12 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources,"meta":final_meta},
                 request_id=request_id,
             )
+            logger.info(
+                "[NEXO_DEBUG_STREAM] done request_id=%s chars=%s provider=%s",
+                request_id,
+                len(final),
+                stream_meta.provider_used,
+            )
             yield "event: done\n"
             yield "data: " + json.dumps({"_meta":final_meta}, ensure_ascii=False) + "\n\n"
         except GenerationFailure as exc:
@@ -623,8 +652,19 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                     "_meta":{"final_reason":exc.reason,"system_status":"DEGRADED","used_local_fallback":False},
                 }, ensure_ascii=False) + "\n\n"
                 return
-            allow_local_fallback = request.headers.get("X-C33-Allow-Local-Fallback", "true").strip().lower() in {"1", "true", "yes", "on"}
-            if not allow_local_fallback or not config.local_fallback_enabled:
+            requested_local_fallback = request.headers.get("X-C33-Allow-Local-Fallback", "true").strip().lower() in {"1", "true", "yes", "on"}
+            allow_local_fallback = (
+                requested_local_fallback
+                and config.local_fallback_enabled
+                and config.environment != "production"
+            )
+            if not allow_local_fallback:
+                if config.environment == "production" and requested_local_fallback:
+                    logger.warning(
+                        "[NEXO_DEBUG_STREAM] local_fallback_blocked_in_production request_id=%s reason=%s",
+                        request_id,
+                        exc.reason,
+                    )
                 yield "event: error\n"
                 yield "data: " + json.dumps({"reason":exc.reason,"_meta":{"final_reason":exc.reason,"used_local_fallback":False}}, ensure_ascii=False) + "\n\n"
                 return

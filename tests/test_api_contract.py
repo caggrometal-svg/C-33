@@ -17,9 +17,15 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('_enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)', self.api)
         self.assertIn('_enforce_rate_limit(request, "ai-ready", _RATE_LIMIT_AI_READY)', self.api)
 
-    def test_ai_readiness_cache_is_bounded(self):
-        self.assertNotIn("time.monotonic() + 120.0", self.api)
-        self.assertIn("time.monotonic() + 5.0", self.api)
+    def test_ai_readiness_is_a_live_probe_not_a_cached_success(self):
+        self.assertIn("/v1/ai-ready", self.api)
+        self.assertIn("hard live probe", self.api)
+        self.assertIn("remote_ai_ready = None", self.api)
+        self.assertNotIn("cache_hit provider=", self.api)
+
+    def test_production_local_fallback_is_fail_closed(self):
+        self.assertIn('config.environment != "production"', self.api)
+        self.assertIn("local_fallback_blocked_in_production", self.api)
 
     def test_http_and_stream_transport_errors_use_nested_context(self):
         self.assertGreaterEqual(self.providers.count("cause = exc.__cause__"), 2)
