@@ -165,6 +165,8 @@ class ProviderCascade:
 
     async def complete(self, messages: list[dict[str, str]], budget: DeadlineBudget, *, probe: bool = False) -> GenerationResult:
         self.assert_ready_configuration()
+        if probe:
+            return await self._probe_parallel(messages, budget)
         attempts: list[dict[str, Any]] = []
         if budget.remaining_ms < 1000:
             raise GenerationFailure("deadline_exhausted_before_provider", http_status=504, attempts=[])
@@ -194,6 +196,88 @@ class ProviderCascade:
         if final_reason in {"timeout","deadline_exhausted","dns_failure","tls_failure","connection_reset"}:
             raise GenerationFailure(final_reason,http_status=504,attempts=attempts)
         raise GenerationFailure(final_reason,http_status=502,attempts=attempts)
+
+    async def _probe_parallel(self, messages: list[dict[str, str]], budget: DeadlineBudget) -> GenerationResult:
+        """Probe independent providers concurrently so readiness is not serialized behind one slow provider."""
+        attempts: list[dict[str, Any]] = []
+        candidates: list[tuple[int, ProviderSpec]] = []
+        for index, spec in enumerate(self.providers):
+            if budget.remaining_ms < 1000:
+                break
+            decision = await self.state.circuit_before_call(spec.provider_id)
+            if not decision.allowed:
+                attempts.append({"provider": spec.provider_id, "reason": "circuit_open", "cooldown_ms": decision.cooldown_ms})
+                continue
+            candidates.append((index, spec))
+        if not candidates:
+            raise GenerationFailure(self._final_reason(attempts), http_status=503, attempts=attempts)
+
+        async def run(index: int, spec: ProviderSpec) -> tuple[int, ProviderSpec, GenerationResult | None, GenerationFailure | None, int]:
+            started = time.monotonic()
+            timeout_ms = min(spec.timeout_ms, max(1000, budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)))
+            try:
+                text = await self._complete_one(spec, messages, timeout_ms, probe=True)
+                latency = int((time.monotonic() - started) * 1000)
+                await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=latency)
+                result = GenerationResult(
+                    text=text,
+                    meta=ProviderMeta(
+                        spec.provider_id,
+                        spec.model,
+                        index > 0,
+                        1,
+                        latency,
+                        "success_after_failover" if index > 0 else "success",
+                        "AI_READY" if index == 0 else "DEGRADED",
+                    ),
+                )
+                return index, spec, result, None, latency
+            except GenerationFailure as exc:
+                latency = int((time.monotonic() - started) * 1000)
+                await self.state.circuit_failure(
+                    spec.provider_id,
+                    reason=exc.reason,
+                    status=exc.http_status,
+                    model=spec.model,
+                    latency_ms=latency,
+                    cooldown_ms=self._cooldown_ms(exc),
+                )
+                return index, spec, None, exc, latency
+
+        tasks = [asyncio.create_task(run(index, spec)) for index, spec in candidates]
+        try:
+            pending = set(tasks)
+            while pending:
+                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    index, spec, result, failure, latency = await task
+                    if result is not None:
+                        for other in pending:
+                            other.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return result
+                    assert failure is not None
+                    attempts.append({
+                        "provider": spec.provider_id,
+                        "status": failure.http_status,
+                        "reason": failure.reason,
+                        "latency_ms": latency,
+                        "retry_after_ms": failure.retry_after_ms,
+                    })
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        final_reason = self._final_reason(attempts)
+        if final_reason == "rate_limited":
+            raise GenerationFailure(final_reason, http_status=429, attempts=attempts, retry_after_ms=self._max_retry_after(attempts))
+        if final_reason in {"timeout", "deadline_exhausted", "dns_failure", "tls_failure", "connection_reset"}:
+            raise GenerationFailure(final_reason, http_status=504, attempts=attempts)
+        raise GenerationFailure(final_reason, http_status=502, attempts=attempts)
 
     async def _complete_one(self, spec: ProviderSpec, messages: list[dict[str, str]], timeout_ms: int, *, probe: bool) -> str:
         headers = {"Content-Type":"application/json"}
