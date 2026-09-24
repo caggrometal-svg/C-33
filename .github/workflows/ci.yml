@@ -23,3 +23,15 @@ jobs:
       - name: Validate NEXO mobile JavaScript
         working-directory: mobile
         run: node --check app.js
+      - name: Smoke test Railway C-33 chat
+        env:
+          C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
+        run: |
+          set -euo pipefail
+          body='{"message":"Responde exactamente C33_CHAT_SMOKE_OK","user_id":"github-smoke","stream":false,"personality":"base","voice_tone":"neutral"}'
+          response="$(curl -fsS --max-time 60 \
+            -H "Content-Type: application/json" \
+            -X POST "${C33_BACKUP_URL}/v1/chat" \
+            --data "${body}")"
+          echo "${response}"
+          echo "${response}" | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"; assert isinstance(d.get("synthesis"),str) and d["synthesis"].strip(); print("C33_CHAT_SMOKE_OK")'
