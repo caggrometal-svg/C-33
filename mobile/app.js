@@ -1,5 +1,12 @@
 const BACKEND_URLS = Array.from(
-  new Set((window.C33_CONFIG?.BACKEND_URLS || ["http://localhost:8000"]).map((url) => url.replace(/\/$/, ""))),
+  new Set(
+    (
+      window.C33_CONFIG?.BACKEND_URLS || [
+        "https://iac33-backup-production.up.railway.app",
+        "https://c33-backend.onrender.com",
+      ]
+    ).map((url) => url.replace(/\/$/, "")),
+  ),
 );
 const API_PATH = window.C33_CONFIG?.CHAT_PATH || "/v1/chat";
 const HEALTH_PATH = window.C33_CONFIG?.HEALTH_PATH || "/health";
