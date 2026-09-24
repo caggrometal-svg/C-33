@@ -77,6 +77,29 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(result.meta.provider_used, "b")
 
+    async def test_nested_dns_failure_fails_over(self):
+        class NestedDnsTransport(FaultTransport):
+            async def handle_async_request(self, request):
+                cause = OSError("Temporary failure in name resolution")
+                exc = httpx.ConnectError("transport failed", request=request)
+                exc.__cause__ = cause
+                raise exc
+
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=NestedDnsTransport({"a.test": "dns", "b.test": "ok"}),
+        )
+        result = await cascade.complete([{"role": "user", "content": "x"}], DeadlineBudget(5000))
+        self.assertEqual(result.meta.provider_used, "b")
+        self.assertEqual(state.failures[0][1], "dns_failure")
+
     async def test_tls_failure_fails_over(self):
         state = FakeState()
         specs = [
