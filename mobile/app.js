@@ -88,13 +88,14 @@ function addMessage(text, role) {
   return node;
 }
 
-const CONNECTION_STATES = Object.freeze(["OFFLINE", "ONLINE", "READY", "AI_READY", "DEGRADED"]);
+const CONNECTION_STATES = Object.freeze(["OFFLINE", "ONLINE", "READY", "STREAMING", "AI_READY", "DEGRADED"]);
 const CONNECTED_STATE = "AI_READY";
 const VALID_TRANSITIONS = Object.freeze({
   OFFLINE: new Set(["OFFLINE", "ONLINE", "READY", "AI_READY", "DEGRADED"]),
   ONLINE: new Set(["ONLINE", "READY", "AI_READY", "DEGRADED", "OFFLINE"]),
-  READY: new Set(["READY", "AI_READY", "DEGRADED", "OFFLINE", "ONLINE"]),
-  AI_READY: new Set(["AI_READY", "DEGRADED", "READY", "ONLINE", "OFFLINE"]),
+  READY: new Set(["READY", "STREAMING", "AI_READY", "DEGRADED", "OFFLINE", "ONLINE"]),
+  STREAMING: new Set(["STREAMING", "AI_READY", "DEGRADED", "READY", "OFFLINE"]),
+  AI_READY: new Set(["AI_READY", "DEGRADED", "READY", "STREAMING", "ONLINE", "OFFLINE"]),
   DEGRADED: new Set(["DEGRADED", "AI_READY", "READY", "ONLINE", "OFFLINE"]),
 });
 let connectionState = "OFFLINE";
@@ -181,9 +182,16 @@ async function probeBackend(index) {
     if (!ready.ok) return { backend: index, state: "ONLINE", reason: "ready_http_" + ready.status };
     remaining = Math.max(500, deadlineAt - Date.now());
     const ai = await fetchBounded(base + AI_READY_PATH, {}, remaining);
-    if (ai.ok) {
+    let aiData = null;
+    try { aiData = await ai.json(); } catch {}
+    if (ai.ok && aiData?.status === "ai_ready") {
       recordBackendSuccess(index);
-      return { backend: index, state: "AI_READY", reason: "remote_success" };
+      return {
+        backend: index,
+        state: aiData.failover_triggered ? "DEGRADED" : "AI_READY",
+        reason: aiData.failover_triggered ? "remote_success_failover" : "remote_success",
+        provider: aiData.provider_used || "",
+      };
     }
     let reason = "ai_ready_http_" + ai.status;
     try {
@@ -203,6 +211,7 @@ let refreshInFlight = null;
 async function refreshConnection() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
+    if (activeControllers.size > 0) return [];
     const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i)));
     const best = results.reduce((a, b) => stateRank(b.state) > stateRank(a.state) ? b : a, results[0] || { state: "OFFLINE", backend: 0 });
     if (best?.state === "AI_READY") transition(best.backend === 0 ? "AI_READY" : "DEGRADED", "NEXO · " + (best.backend === 0 ? "Conectado · IA lista" : "Degradado · respaldo activo") + " · " + backendRole(best.backend));
@@ -232,7 +241,7 @@ async function streamChatWithFailover(options = {}) {
     const base = BACKEND_URLS[index];
     if (!base) continue;
 
-    transition("READY", "NEXO · verificando " + backendRole(index) + "…");
+    transition("STREAMING", "NEXO · IA remota " + backendRole(index) + "…");
     const controller = new AbortController();
     activeControllers.add(controller);
     const timer = setTimeout(() => controller.abort(), remaining);
@@ -474,6 +483,6 @@ if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
 }
 
 refreshConnection();
-setInterval(() => { if (document.visibilityState === "visible") refreshConnection(); }, 15000);
+setInterval(() => { if (document.visibilityState === "visible" && activeControllers.size === 0) refreshConnection(); }, 60000);
 resizeInput();
 input.focus();
