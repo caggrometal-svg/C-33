@@ -147,6 +147,7 @@ const PRIMARY_BACKEND_INDEX = 0;
 const BACKUP_BACKEND_INDEX = 1;
 let activeBackendIndex = PRIMARY_BACKEND_INDEX;
 let primaryCooldownUntil = 0;
+const PRIMARY_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
 
 function backendRole(index) {
   return index === PRIMARY_BACKEND_INDEX ? "principal" : "respaldo";
@@ -179,7 +180,7 @@ async function requestWithFailover(path, options = {}) {
 
     const isPrimary = index === PRIMARY_BACKEND_INDEX;
     const attemptMs = isChat
-      ? 45000
+      ? 60000
       : (isPrimary ? 2500 : 7000);
 
     setStatus(
@@ -218,7 +219,7 @@ async function requestWithFailover(path, options = {}) {
       failures.push(`${backendRole(index)}: ${normalized.message}`);
 
       if (isPrimary && (error?.name === "AbortError" || error instanceof TypeError)) {
-        primaryCooldownUntil = Date.now() + 30000;
+        primaryCooldownUntil = Date.now() + PRIMARY_FAILURE_COOLDOWN_MS;
       }
     } finally {
       clearTimeout(timeoutId);
