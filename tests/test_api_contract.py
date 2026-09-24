@@ -19,7 +19,7 @@ class ApiContractTests(unittest.TestCase):
 
     def test_ai_readiness_cache_is_bounded(self):
         self.assertNotIn("time.monotonic() + 120.0", self.api)
-        self.assertIn("time.monotonic() + 15.0", self.api)
+        self.assertIn("time.monotonic() + 5.0", self.api)
 
     def test_http_and_stream_transport_errors_use_nested_context(self):
         self.assertGreaterEqual(self.providers.count("cause = exc.__cause__"), 2)
