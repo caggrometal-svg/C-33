@@ -106,13 +106,13 @@ class ProviderCascade:
                 a_base = provider_a_url
                 a_host = urlparse(a_base).netloc.lower()
                 a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or "provider_a"
-                a_model = os.getenv("AI_PROVIDER_A_MODEL", "").strip() or ("auto" if "vireonix.ai" in a_host else "nvidia/gpt-oss-20b")
+                a_model = os.getenv("AI_PROVIDER_A_MODEL", "").strip() or ("auto" if "vireonix.ai" in a_host else "nvidia/nemotron-3.5-lightning")
                 a_key = os.getenv("AI_PROVIDER_A_KEY_ENV", "").strip() or configured_key_env
             elif configured_base:
                 a_base = configured_base
                 a_host = urlparse(a_base).netloc.lower()
                 a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or ("vireonix" if "vireonix.ai" in a_host else ("blockrun" if "blockrun.ai" in a_host else a_host or "provider_a"))
-                a_model = configured_model or ("auto" if "vireonix.ai" in a_host else "nvidia/gpt-oss-20b")
+                a_model = configured_model or ("auto" if "vireonix.ai" in a_host else "nvidia/nemotron-3.5-lightning")
                 a_key = configured_key_env
             else:
                 a_base = "https://vireonix.ai/v1"
@@ -126,9 +126,9 @@ class ProviderCascade:
             if provider_b_url:
                 b_base = provider_b_url
                 b_host = urlparse(b_base).netloc.lower()
-                b_model = os.getenv("AI_PROVIDER_B_MODEL", "").strip() or ("nvidia/gpt-oss-20b" if "blockrun.ai" in b_host else "auto")
+                b_model = os.getenv("AI_PROVIDER_B_MODEL", "").strip() or ("nvidia/nemotron-3.5-lightning" if "blockrun.ai" in b_host else "auto")
             elif "vireonix.ai" in a_host:
-                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/gpt-oss-20b"
+                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/nemotron-3.5-lightning"
             elif "blockrun.ai" in a_host:
                 b_base, b_host, b_model = "https://vireonix.ai/v1", "vireonix.ai", "auto"
             else:
@@ -282,7 +282,7 @@ class ProviderCascade:
         headers = {"Content-Type":"application/json"}
         api_key = os.getenv(spec.api_key_env, "").strip() if spec.api_key_env else ""
         if api_key: headers["Authorization"] = f"Bearer {api_key}"
-        payload: dict[str, Any] = {"model":spec.model,"messages":messages,"temperature":0.2,"stream":False}
+        payload: dict[str, Any] = {"model":spec.model,"messages":messages,"stream":False}
         if probe: payload.update({"max_tokens":8,"temperature":0})
         timeout = httpx.Timeout(timeout_ms/1000, connect=min(2.0,timeout_ms/1000), read=timeout_ms/1000, write=min(2.0,timeout_ms/1000), pool=min(1.0,timeout_ms/1000))
         try:
@@ -330,7 +330,7 @@ class ProviderCascade:
             headers={"Content-Type":"application/json","Accept":"text/event-stream"}
             api_key=os.getenv(spec.api_key_env,"").strip() if spec.api_key_env else ""
             if api_key: headers["Authorization"]=f"Bearer {api_key}"
-            payload={"model":spec.model,"messages":messages,"temperature":0.2,"stream":True}
+            payload={"model":spec.model,"messages":messages,"stream":True}
             try:
                 timeout=httpx.Timeout(timeout_ms/1000,connect=min(2.0,timeout_ms/1000),read=timeout_ms/1000,write=2.0,pool=1.0)
                 async with httpx.AsyncClient(timeout=timeout,follow_redirects=True,transport=self.transport) as client:
