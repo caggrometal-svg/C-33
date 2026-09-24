@@ -32,6 +32,8 @@ class FaultTransport(httpx.AsyncBaseTransport):
             return httpx.Response(429, headers={"retry-after":"2"}, request=request)
         if behavior == "502":
             return httpx.Response(502, request=request)
+        if behavior == "invalid":
+            return httpx.Response(200, json={"choices":[]}, request=request)
         if behavior == "stream_ok":
             return httpx.Response(
                 200,
@@ -45,6 +47,28 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_deadline_is_bounded_by_client(self):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
         self.assertLessEqual(budget.remaining_ms, 5000)
+
+    async def test_5xx_fails_over_to_second_provider(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"502","b.test":"ok"}))
+        result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
+        self.assertEqual(result.text, "C33_OK")
+        self.assertEqual(result.meta.provider_used, "b")
+
+    async def test_invalid_provider_response_fails_over(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"invalid","b.test":"ok"}))
+        result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
+        self.assertEqual(result.text, "C33_OK")
+        self.assertEqual(result.meta.provider_used, "b")
 
     async def test_stream_fails_over_to_second_provider(self):
         state = FakeState()
