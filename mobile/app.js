@@ -1,5 +1,5 @@
-const DEFAULT_API_URL = "http://localhost:8000";
-const API_URL = (localStorage.getItem("C33_API_URL") || DEFAULT_API_URL).replace(/\/$/, "");
+const API_URL = (window.C33_CONFIG?.API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+const API_PATH = window.C33_CONFIG?.CHAT_PATH || "/v1/chat";
 const USER_ID_KEY = "C33_USER_ID";
 
 const form = document.getElementById("chat-form");
@@ -20,13 +20,17 @@ function addMessage(text, role) {
   return node;
 }
 
+function setStatus(text) {
+  status.textContent = text;
+}
+
 async function checkHealth() {
   try {
     const response = await fetch(`${API_URL}/health`);
     if (!response.ok) throw new Error("healthcheck failed");
-    status.textContent = "Conectado";
+    setStatus("Conectado");
   } catch {
-    status.textContent = "Desconectado";
+    setStatus("Desconectado");
   }
 }
 
@@ -38,13 +42,17 @@ form.addEventListener("submit", async (event) => {
   addMessage(message, "user");
   input.value = "";
   send.disabled = true;
-  status.textContent = "Procesando…";
+  setStatus("C-33 pensando...");
 
   try {
-    const response = await fetch(`${API_URL}/api/chat`, {
+    const response = await fetch(`${API_URL}${API_PATH}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, user_id: userId }),
+      body: JSON.stringify({
+        message,
+        user_id: userId,
+        stream: false,
+      }),
     });
 
     const data = await response.json();
@@ -53,10 +61,10 @@ form.addEventListener("submit", async (event) => {
     }
 
     addMessage(data.synthesis || "C-33 no devolvió una síntesis.", "assistant");
-    status.textContent = "Conectado";
+    setStatus("Conectado");
   } catch (error) {
     addMessage(error.message || "Error de conexión.", "error");
-    status.textContent = "Error";
+    setStatus("Error");
   } finally {
     send.disabled = false;
     input.focus();
