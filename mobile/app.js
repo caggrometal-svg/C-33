@@ -2,8 +2,8 @@ const BACKEND_URLS = Array.from(
   new Set(
     (
       window.C33_CONFIG?.BACKEND_URLS || [
-        "https://iac33-backup-production.up.railway.app",
         "https://c33-backend.onrender.com",
+        "https://iac33-backup-production.up.railway.app",
       ]
     ).map((url) => url.replace(/\/$/, "")),
   ),
@@ -21,6 +21,7 @@ const status = document.getElementById("status");
 const statusDot = document.getElementById("status-dot");
 const welcome = document.getElementById("welcome");
 const settings = document.getElementById("settings");
+let activeBackendIndex = 0;
 const settingsOpen = document.getElementById("settings-open");
 const settingsClose = document.getElementById("settings-close");
 const voiceTone = document.getElementById("voice-tone");
@@ -146,22 +147,43 @@ function setStatus(text, mode = "") {
 async function requestWithFailover(path, options = {}) {
   let lastError = new Error("Todos los servidores están desconectados.");
   const isChat = path === API_PATH;
-  const timeoutMs = isChat ? 5000 : 10000;
+  const timeoutMs = isChat ? 5000 : 3000;
   const deadline = Date.now() + timeoutMs;
+  const order = BACKEND_URLS.map(
+    (_, offset) => (activeBackendIndex + offset) % BACKEND_URLS.length,
+  );
 
-  for (const baseUrl of BACKEND_URLS) {
+  for (const index of order) {
+    const baseUrl = BACKEND_URLS[index];
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
+    // Strict 5-second total chat budget; split time so the backup can actually be tried.
+    const attemptMs = isChat
+      ? Math.min(remainingMs, 2500)
+      : Math.min(remainingMs, 1500);
+
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), remainingMs);
+      const timeout = setTimeout(() => controller.abort(), attemptMs);
       try {
         const response = await fetch(`${baseUrl}${path}`, {
           ...options,
           signal: controller.signal,
         });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        if (!response.ok) {
+          let detail = `HTTP ${response.status}`;
+          try {
+            const body = await response.json();
+            detail = body?.detail || body?.message || detail;
+          } catch {
+            // Keep the HTTP status when the server returned no JSON.
+          }
+          throw new Error(detail);
+        }
+
+        activeBackendIndex = index;
         return response;
       } finally {
         clearTimeout(timeout);
@@ -170,23 +192,28 @@ async function requestWithFailover(path, options = {}) {
       if (error?.name === "AbortError") {
         lastError = new Error(
           isChat
-            ? "NEXO no respondió dentro de 5 segundos."
+            ? "NEXO agotó los 5 segundos de conexión."
             : "Tiempo de conexión agotado.",
         );
       } else {
-        lastError = error instanceof Error ? error : new Error("Error de conexión.");
+        lastError =
+          error instanceof Error ? error : new Error("Error de conexión.");
       }
     }
   }
+
   throw lastError;
 }
 
 async function checkHealth() {
   try {
     await requestWithFailover(HEALTH_PATH);
-    setStatus("Conectado", "online");
+    const role = BACKEND_URLS[activeBackendIndex].includes("render.com")
+      ? "principal"
+      : "respaldo";
+    setStatus(`Conectado · ${role}`, "online");
   } catch {
-    setStatus("Desconectado");
+    setStatus("Sin conexión");
   }
 }
 
