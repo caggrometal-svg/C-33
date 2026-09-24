@@ -73,6 +73,33 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(ctx.exception.http_status, 429)
 
+    def test_default_provider_contract_is_two_independent_bounded_providers(self):
+        previous = {key: os.environ.get(key) for key in (
+            "AI_PROVIDERS_JSON",
+            "AI_PROVIDER_A_BASE_URL",
+            "AI_PROVIDER_B_BASE_URL",
+            "MODEL_BASE_URL",
+            "MODEL_NAME",
+            "AI_PROVIDER_ORDER",
+        )}
+        try:
+            for key in previous:
+                os.environ.pop(key, None)
+            os.environ["MODEL_BASE_URL"] = "https://vireonix.ai/v1"
+            os.environ["MODEL_NAME"] = "auto"
+            os.environ["AI_PROVIDER_ORDER"] = "vireonix,blockrun"
+            cascade = ProviderCascade.from_environment(FakeState())
+            self.assertEqual(len(cascade.providers), 2)
+            self.assertEqual([p.timeout_ms for p in cascade.providers], [6000, 4000])
+            self.assertEqual(len(set(p.failure_domain for p in cascade.providers)), 2)
+            self.assertEqual([p.provider_id for p in cascade.providers], ["vireonix", "blockrun"])
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_redundancy_configuration_rejects_single_provider(self):
         previous = os.environ.get("REQUIRE_PROVIDER_REDUNDANCY")
         os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "true"

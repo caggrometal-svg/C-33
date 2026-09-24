@@ -9,13 +9,13 @@ services:
     healthCheckPath: /health
     envVars:
       - key: C33_ROLE
-        value: primary
+        value: secondary
       - key: PUBLIC_BASE_URL
         value: https://c33-backend.onrender.com
       - key: CLIENT_TIMEOUT_MS
-        value: "28000"
+        value: "15000"
       - key: BACKEND_TOTAL_TIMEOUT_MS
-        value: "26000"
+        value: "12000"
       - key: NETWORK_TIMEOUT_SECONDS
         value: "8"
       - key: LOCAL_FALLBACK_ENABLED

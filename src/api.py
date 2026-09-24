@@ -68,7 +68,7 @@ class ChatResponse(BaseModel):
     request_id: str
     synthesis: str
     web_searches: list[str]
-    _meta: ResponseMeta = Field(alias="_meta")
+    meta: ResponseMeta = Field(alias="_meta")
     model_config = {"populate_by_name": True}
 
 class ReadyResponse(BaseModel):
@@ -86,7 +86,10 @@ def _deployment_sha() -> str:
     return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT_SHA") or "unknown"
 
 def _backend_url() -> str:
-    return os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/") or ("https://c33-backend.onrender.com" if config.role == "primary" else "https://iac33-backup-production.up.railway.app")
+    configured = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    return "https://c33-backend.onrender.com" if config.role == "secondary" else "https://iac33-backup-production.up.railway.app"
 
 def _require_runtime() -> tuple[PostgresState, Brain, ProviderCascade]:
     if state is None or brain is None or cascade is None:
@@ -194,7 +197,7 @@ async def status() -> dict[str, Any]:
     if cascade and state:
         providers = await state.all_circuit_snapshots([p.provider_id for p in cascade.providers])
     peer = await _peer_probe()
-    system_status = "OFFLINE" if not db_ok else ("DEGRADED" if peer in {"OFFLINE", "NOT_CONFIGURED"} else "READY")
+    system_status = "OFFLINE" if not db_ok else "READY"
     return {
         "status":"ok" if db_ok else "degraded",
         "service":"C-33",
@@ -298,7 +301,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
         stored_meta.setdefault("request_id", request_id)
         stored_meta.setdefault("conversation_id", effective_payload.conversation_id)
-        return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=[],_meta=stored_meta)
+        return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=[],meta=stored_meta)
 
     await st.append_message(
         conversation_id=effective_payload.conversation_id,
@@ -351,7 +354,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
             }
             sync = await _commit_turn(st, effective_payload, synthesis, {**meta,"remaining_ms":budget.remaining_ms})
             meta["memory_sync"] = sync
-            return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=synthesis,web_searches=[],_meta=meta)
+            return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=synthesis,web_searches=[],meta=meta)
         raise HTTPException(status_code=generation_failure.http_status, detail={"reason":generation_failure.reason,"attempts":generation_failure.attempts})
 
     assert result is not None
@@ -370,10 +373,10 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     meta["memory_sync"] = sync
     meta["system_status"] = (
         "DEGRADED"
-        if meta.get("failover_triggered") or meta.get("peer_status") != "ONLINE" or sync != "SYNCED"
+        if meta.get("failover_triggered") or sync != "SYNCED"
         else "AI_READY"
     )
-    return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=result.response,web_searches=result.sources,_meta=meta)
+    return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=result.response,web_searches=result.sources,meta=meta)
 
 @app.post("/v1/chat", response_model=ChatResponse)
 @app.post("/api/chat", response_model=ChatResponse)
@@ -413,37 +416,103 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
 
     async def events():
         pieces: list[str] = []
+        stream_meta: Any = None
+        started = time.monotonic()
+        parent_task = asyncio.current_task()
+
+        async def cancel_on_disconnect() -> None:
+            assert parent_task is not None
+            while True:
+                if await request.is_disconnected():
+                    parent_task.cancel()
+                    return
+                await asyncio.sleep(0.05)
+
+        watcher = asyncio.create_task(cancel_on_disconnect())
         try:
             async for piece, meta in providers.stream(messages, budget):
                 if await request.is_disconnected():
                     return
+                stream_meta = meta
                 pieces.append(piece)
-                yield "event: token\\n"
-                yield "data: " + json.dumps({"text":piece}, ensure_ascii=False) + "\\n\\n"
+                yield "event: token\n"
+                yield "data: " + json.dumps({"text":piece}, ensure_ascii=False) + "\n\n"
             final = "".join(pieces).strip()
-            if final:
-                await st.append_message(
-                    conversation_id=payload.conversation_id,
-                    user_id=payload.user_id,
-                    role="assistant",
-                    content=final,
-                    metadata={"provider_used":meta.provider_used,"model":meta.model,"stream":True,"sources":sources},
-                    request_id=request_id,
-                )
-            yield "event: done\\n"
-            yield "data: " + json.dumps({"_meta":{
-                "provider_used":meta.provider_used if final else "unknown",
-                "model":meta.model if final else "unknown",
-                "failover_triggered":meta.failover_triggered if final else False,
-                "latency_ms":meta.latency_ms if final else config.backend_total_timeout_ms,
-                "final_reason":"stream_complete" if final else "empty_stream",
-                "system_status":meta.system_status if final else "DEGRADED",
+            if not final or stream_meta is None:
+                raise GenerationFailure("empty_stream", http_status=502, attempts=[])
+            await st.append_message(
+                conversation_id=payload.conversation_id,
+                user_id=payload.user_id,
+                role="assistant",
+                content=final,
+                metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources},
+                request_id=request_id,
+            )
+            final_meta = {
+                "provider_used":stream_meta.provider_used,
+                "model":stream_meta.model,
+                "failover_triggered":stream_meta.failover_triggered,
+                "latency_ms":int((time.monotonic() - started) * 1000),
+                "final_reason":"stream_complete",
+                "system_status":stream_meta.system_status,
                 "backend_role":config.role,
+                "backend_url":_backend_url(),
                 "request_id":request_id,
                 "conversation_id":payload.conversation_id,
-            }}, ensure_ascii=False) + "\\n\\n"
-        except (GenerationFailure, asyncio.CancelledError):
-            return
+                "provider_attempts":stream_meta.attempts,
+                "used_local_fallback":False,
+            }
+            yield "event: done\n"
+            yield "data: " + json.dumps({"_meta":final_meta}, ensure_ascii=False) + "\n\n"
+        except GenerationFailure as exc:
+            if await request.is_disconnected():
+                return
+            if pieces:
+                yield "event: error\n"
+                yield "data: " + json.dumps({
+                    "reason":exc.reason,
+                    "_meta":{"final_reason":exc.reason,"system_status":"DEGRADED","used_local_fallback":False},
+                }, ensure_ascii=False) + "\n\n"
+                return
+            if not config.local_fallback_enabled:
+                yield "event: error\n"
+                yield "data: " + json.dumps({"reason":exc.reason,"_meta":{"final_reason":exc.reason,"used_local_fallback":False}}, ensure_ascii=False) + "\n\n"
+                return
+            fallback = b.local_fallback(payload.message, exc.reason)
+            fallback_meta = {
+                "provider_used":"local",
+                "model":"local-fallback",
+                "failover_triggered":True,
+                "latency_ms":int((time.monotonic() - started) * 1000),
+                "final_reason":exc.reason,
+                "system_status":"DEGRADED",
+                "backend_role":config.role,
+                "backend_url":_backend_url(),
+                "request_id":request_id,
+                "conversation_id":payload.conversation_id,
+                "provider_attempts":len(exc.attempts),
+                "used_local_fallback":True,
+            }
+            await st.append_message(
+                conversation_id=payload.conversation_id,
+                user_id=payload.user_id,
+                role="assistant",
+                content=fallback,
+                metadata={"provider_used":"local","model":"local-fallback","stream":True,"sources":sources,"meta":fallback_meta},
+                request_id=request_id,
+            )
+            yield "event: fallback\n"
+            yield "data: " + json.dumps({"text":fallback,"_meta":fallback_meta}, ensure_ascii=False) + "\n\n"
+            yield "event: done\n"
+            yield "data: " + json.dumps({"_meta":fallback_meta}, ensure_ascii=False) + "\n\n"
+        except asyncio.CancelledError:
+            raise
+        finally:
+            watcher.cancel()
+            try:
+                await watcher
+            except asyncio.CancelledError:
+                pass
 
     return StreamingResponse(
         events(),

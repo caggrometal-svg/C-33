@@ -58,7 +58,7 @@ class Brain:
 
         sources: list[str] = []
         lower = prompt.lower()
-        needs_web = bool(re.search(r"https?://\\S+", prompt)) or any(
+        needs_web = bool(re.search(r"https?://\S+", prompt)) or any(
             marker in lower
             for marker in {
                 "latest", "today", "ahora", "actual", "actualmente", "current",
@@ -104,7 +104,7 @@ class Brain:
         personality_mode: str | None = None,
         budget: DeadlineBudget | None = None,
     ) -> AgentResult:
-        budget = budget or DeadlineBudget(26_000)
+        budget = budget or DeadlineBudget(12_000)
         messages, sources, memory_hits = await self.prepare_messages(
             prompt,
             user_id=user_id,

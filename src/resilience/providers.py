@@ -95,11 +95,56 @@ class ProviderCascade:
                     raise ValueError(f"Invalid provider URL for {pid}")
                 specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
         else:
-            base = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
-            model = os.getenv("MODEL_NAME", "auto").strip() or "auto"
-            key_env = "OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY", "").strip() else ("MODEL_API_KEY" if os.getenv("MODEL_API_KEY", "").strip() else None)
-            specs = [ProviderSpec("legacy", base, model, key_env, urlparse(base).netloc.lower(), 7000)]
-        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "").split(",") if x.strip()]
+            configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
+            configured_model = os.getenv("MODEL_NAME", "").strip()
+            configured_key_env = "OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY", "").strip() else ("MODEL_API_KEY" if os.getenv("MODEL_API_KEY", "").strip() else None)
+
+            provider_a_url = os.getenv("AI_PROVIDER_A_BASE_URL", "").strip().rstrip("/")
+            provider_b_url = os.getenv("AI_PROVIDER_B_BASE_URL", "").strip().rstrip("/")
+
+            if provider_a_url:
+                a_base = provider_a_url
+                a_host = urlparse(a_base).netloc.lower()
+                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or "provider_a"
+                a_model = os.getenv("AI_PROVIDER_A_MODEL", "").strip() or ("auto" if "vireonix.ai" in a_host else "nvidia/gpt-oss-20b")
+                a_key = os.getenv("AI_PROVIDER_A_KEY_ENV", "").strip() or configured_key_env
+            elif configured_base:
+                a_base = configured_base
+                a_host = urlparse(a_base).netloc.lower()
+                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or ("vireonix" if "vireonix.ai" in a_host else ("blockrun" if "blockrun.ai" in a_host else a_host or "provider_a"))
+                a_model = configured_model or ("auto" if "vireonix.ai" in a_host else "nvidia/gpt-oss-20b")
+                a_key = configured_key_env
+            else:
+                a_base = "https://vireonix.ai/v1"
+                a_host = "vireonix.ai"
+                a_id = "vireonix"
+                a_model = "auto"
+                a_key = None
+
+            specs = [ProviderSpec(a_id, a_base, a_model, a_key, a_host, 6_000)]
+
+            if provider_b_url:
+                b_base = provider_b_url
+                b_host = urlparse(b_base).netloc.lower()
+                b_model = os.getenv("AI_PROVIDER_B_MODEL", "").strip() or ("nvidia/gpt-oss-20b" if "blockrun.ai" in b_host else "auto")
+            elif "vireonix.ai" in a_host:
+                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/gpt-oss-20b"
+            elif "blockrun.ai" in a_host:
+                b_base, b_host, b_model = "https://vireonix.ai/v1", "vireonix.ai", "auto"
+            else:
+                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/gpt-oss-20b"
+
+            specs.append(
+                ProviderSpec(
+                    os.getenv("AI_PROVIDER_B_ID", "").strip() or ("blockrun" if "blockrun.ai" in b_host else ("vireonix" if "vireonix.ai" in b_host else "provider_b")),
+                    b_base,
+                    b_model,
+                    os.getenv("AI_PROVIDER_B_KEY_ENV", "").strip() or None,
+                    b_host,
+                    4_000,
+                )
+            )
+        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
         return cls(state, specs, order)
 
     @property

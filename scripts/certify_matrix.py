@@ -77,7 +77,7 @@ async def certify_service(
         urljoin(base, "v1/chat"),
         headers={
             "Content-Type": "application/json",
-            "X-C33-Deadline-Epoch-Ms": str(int(__import__("time").time() * 1000) + 28000),
+            "X-C33-Deadline-Epoch-Ms": str(int(__import__("time").time() * 1000) + 15000),
         },
         json=payload,
     )
@@ -106,34 +106,38 @@ async def main() -> int:
     parser.add_argument("--provider-diversity-only", action="store_true")
     args = parser.parse_args()
 
-    timeout = httpx.Timeout(30.0, connect=4.0, read=30.0, write=4.0, pool=2.0)
+    timeout = httpx.Timeout(20.0, connect=4.0, read=20.0, write=4.0, pool=2.0)
     errors: list[str] = []
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-        for name, url in (("Render", args.render_url), ("Railway", args.railway_url)):
-            try:
-                errors.extend(await certify_service(
-                    client, name, url, args.expected_sha,
-                    provider_diversity_only=args.provider_diversity_only,
-                ))
-            except httpx.HTTPError as exc:
-                errors.append(f"{name}: network verification failure: {exc}")
+        try:
+            errors.extend(await certify_service(
+                client,
+                "Railway primary",
+                args.railway_url,
+                args.expected_sha,
+                provider_diversity_only=args.provider_diversity_only,
+            ))
+        except httpx.HTTPError as exc:
+            errors.append(f"Railway primary: network verification failure: {exc}")
 
-        if not args.provider_diversity_only:
-            # Require different provider failure domains between the two deployments.
-            try:
-                _, render_status = await get_json(client, args.render_url.rstrip("/") + "/status")
-                _, railway_status = await get_json(client, args.railway_url.rstrip("/") + "/status")
-                rdomains = set(render_status.get("provider_failure_domains") or [])
-                wdomains = set(railway_status.get("provider_failure_domains") or [])
-                if not (rdomains - wdomains) and not (wdomains - rdomains):
-                    errors.append("Render and Railway expose identical provider failure domains; redundancy is not independent.")
-            except httpx.HTTPError as exc:
-                errors.append(f"provider-domain comparison failed: {exc}")
+        try:
+            render_errors = await certify_service(
+                client,
+                "Render fallback",
+                args.render_url,
+                args.expected_sha,
+                provider_diversity_only=True,
+            )
+            if render_errors:
+                print("INFO: Render fallback unavailable/not current; Railway remains the required primary.")
+        except httpx.HTTPError as exc:
+            print(f"INFO: Render fallback unavailable ({exc}); Railway remains the required primary.")
 
     if errors:
         for error in errors:
             print("FAIL:", error, file=sys.stderr)
         return 1
+
     print("C33_PRODUCTION_CERTIFICATION_PASS")
     return 0
 

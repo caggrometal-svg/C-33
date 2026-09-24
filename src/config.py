@@ -99,6 +99,11 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     model_api_key = os.getenv("MODEL_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip() or None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     model_name = os.getenv("MODEL_NAME", "auto").strip() or "auto"
+    role = os.getenv("C33_ROLE", "primary").strip().lower() or "primary"
+    if not os.getenv("PUBLIC_BASE_URL", "").strip():
+        legacy_public = os.getenv("IAC33_PUBLIC_BASE_URL", "").strip()
+        if legacy_public:
+            os.environ["PUBLIC_BASE_URL"] = legacy_public
     return InfrastructureConfig(
         port=_required_port(),
         database_url=_optional_database_url(),
@@ -107,12 +112,20 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         model_base_url=model_base_url,
         model_api_key=model_api_key,
         environment=os.getenv("APP_ENV", "production").strip() or "production",
-        role=os.getenv("C33_ROLE", "primary").strip().lower() or "primary",
-        backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 26000, 1000),
-        client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 28000, 1000),
+        role=role,
+        backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 12000, 1000),
+        client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 15000, 1000),
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
-        peer_url=os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None,
-        peer_replication_secret=os.getenv("PEER_REPLICATION_SECRET", "").strip() or None,
+        peer_url=(
+            os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/")
+            or ("https://c33-backend.onrender.com" if role == "primary" else "https://iac33-backup-production.up.railway.app")
+        ) or None,
+        peer_replication_secret=(
+            os.getenv("PEER_REPLICATION_SECRET", "").strip()
+            or os.getenv("IAC33_REPLICATION_TOKEN", "").strip()
+            or os.getenv("IAC33_REPLICATION_TOKEN_COMPAT", "").strip()
+            or None
+        ),
         local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", True),
         require_provider_redundancy=_bool("REQUIRE_PROVIDER_REDUNDANCY", True),
     )

@@ -127,8 +127,26 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
 }
 
 .status-dot.online {
+  background: #8a8f8a;
+}
+
+.status-dot.ready {
+  background: #d7b84b;
+  box-shadow: 0 0 9px #d7b84b;
+}
+
+.status-dot.ai-ready {
   background: var(--green);
   box-shadow: 0 0 9px var(--green);
+}
+
+.status-dot.degraded {
+  background: #ff9800;
+  box-shadow: 0 0 9px #ff9800;
+}
+
+.status-dot.offline {
+  background: #606860;
 }
 
 .status-dot.busy {

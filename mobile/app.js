@@ -84,10 +84,25 @@ function addMessage(text, role) {
   return node;
 }
 
+const CONNECTION_STATES = Object.freeze(["OFFLINE", "ONLINE", "READY", "AI_READY", "DEGRADED"]);
+const CONNECTED_STATE = "AI_READY";
+const VALID_TRANSITIONS = Object.freeze({
+  OFFLINE: new Set(["OFFLINE", "ONLINE", "READY", "AI_READY", "DEGRADED"]),
+  ONLINE: new Set(["ONLINE", "READY", "AI_READY", "DEGRADED", "OFFLINE"]),
+  READY: new Set(["READY", "AI_READY", "DEGRADED", "OFFLINE", "ONLINE"]),
+  AI_READY: new Set(["AI_READY", "DEGRADED", "READY", "ONLINE", "OFFLINE"]),
+  DEGRADED: new Set(["DEGRADED", "AI_READY", "READY", "ONLINE", "OFFLINE"]),
+});
 let connectionState = "OFFLINE";
 let lastBackendIndex = 0;
 let lastMeta = null;
 let circuits = loadCircuits();
+const activeControllers = new Set();
+
+window.addEventListener("pagehide", () => {
+  for (const controller of activeControllers) controller.abort();
+  activeControllers.clear();
+});
 
 function loadCircuits() {
   try {
@@ -124,11 +139,16 @@ function recordBackendFailure(index, reason) {
   saveCircuits();
 }
 function transition(next, detail = "") {
+  if (!CONNECTION_STATES.includes(next)) throw new Error("invalid_connection_state");
+  if (!VALID_TRANSITIONS[connectionState]?.has(next)) throw new Error("invalid_connection_transition");
   connectionState = next;
   status.textContent = detail || next;
-  statusDot.className = "status-dot " + next.toLowerCase();
+  statusDot.className = "status-dot " + next.toLowerCase().replace("_", "-");
 }
-function stateRank(value) { return { OFFLINE: 0, ONLINE: 1, READY: 2, AI_READY: 3, DEGRADED: 4 }[value] ?? 0; }
+function stateRank(value) {
+  return { OFFLINE: 0, ONLINE: 1, READY: 2, DEGRADED: 4, AI_READY: 5 }[value] ?? 0;
+}
+function connectedState() { return connectionState === CONNECTED_STATE; }
 
 function normalizeError(error) {
   if (error?.name === "AbortError") return "timeout";
@@ -146,19 +166,28 @@ async function fetchBounded(url, options = {}, timeoutMs = CLIENT_TIMEOUT_MS) {
 async function probeBackend(index) {
   const base = BACKEND_URLS[index];
   if (!base) return { backend: index, state: "OFFLINE", reason: "not_configured" };
-  if (index === 0 && circuitOpen(index)) return { backend: index, state: "OFFLINE", reason: "primary_circuit_open" };
+  if (circuitOpen(index)) return { backend: index, state: "OFFLINE", reason: "circuit_open" };
+  const deadlineAt = Date.now() + Math.max(PROBE_TIMEOUT_MS + 3000, 5500);
   try {
-    const health = await fetchBounded(base + HEALTH_PATH, {}, PROBE_TIMEOUT_MS);
+    let remaining = Math.max(500, deadlineAt - Date.now());
+    const health = await fetchBounded(base + HEALTH_PATH, {}, remaining);
     if (!health.ok) return { backend: index, state: "OFFLINE", reason: "health_http_" + health.status };
-    const ready = await fetchBounded(base + READY_PATH, {}, PROBE_TIMEOUT_MS);
-    if (!ready.ok && ready.status !== 503) return { backend: index, state: "ONLINE", reason: "ready_http_" + ready.status };
-    const ai = await fetchBounded(base + AI_READY_PATH, {}, Math.min(6000, PROBE_TIMEOUT_MS + 3500));
+    remaining = Math.max(500, deadlineAt - Date.now());
+    const ready = await fetchBounded(base + READY_PATH, {}, remaining);
+    if (!ready.ok) return { backend: index, state: "ONLINE", reason: "ready_http_" + ready.status };
+    remaining = Math.max(500, deadlineAt - Date.now());
+    const ai = await fetchBounded(base + AI_READY_PATH, {}, remaining);
     if (ai.ok) {
       recordBackendSuccess(index);
-      return { backend: index, state: index === 1 ? "DEGRADED" : "AI_READY", reason: "synthetic_ok" };
+      return { backend: index, state: "AI_READY", reason: "synthetic_ok" };
     }
-    recordBackendSuccess(index);
-    return { backend: index, state: ready.ok ? "READY" : "ONLINE", reason: "ai_ready_http_" + ai.status };
+    let reason = "ai_ready_http_" + ai.status;
+    try {
+      const data = await ai.json();
+      reason = data?.detail?.reason || reason;
+    } catch {}
+    recordBackendFailure(index, reason);
+    return { backend: index, state: "READY", reason };
   } catch (error) {
     const reason = normalizeError(error);
     recordBackendFailure(index, reason);
@@ -169,19 +198,18 @@ async function probeBackend(index) {
 async function refreshConnection() {
   const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i)));
   const best = results.reduce((a, b) => stateRank(b.state) > stateRank(a.state) ? b : a, results[0] || { state: "OFFLINE", backend: 0 });
-  if (best?.state === "DEGRADED") transition("DEGRADED", "NEXO · IA respaldada");
-  else if (best?.state === "AI_READY") transition("AI_READY", "NEXO · AI_READY · " + backendRole(best.backend));
-  else if (best?.state === "READY") transition("READY", "NEXO · READY · " + backendRole(best.backend));
-  else if (best?.state === "ONLINE") transition("ONLINE", "NEXO · ONLINE");
+  if (best?.state === "AI_READY") transition("AI_READY", "NEXO · Conectado · IA lista · " + backendRole(best.backend));
+  else if (best?.state === "DEGRADED") transition("DEGRADED", "NEXO · Degradado · respaldo activo");
+  else if (best?.state === "READY") transition("READY", "NEXO · Backend listo · esperando IA");
+  else if (best?.state === "ONLINE") transition("ONLINE", "NEXO · Internet disponible · backend no listo");
   else transition("OFFLINE", "NEXO · Sin conexión");
   return results;
 }
 
 function orderedBackends() {
-  const result = [];
-  if (!circuitOpen(0) || Date.now() >= Number(circuits[0]?.openUntil || 0)) result.push(0);
-  if (BACKEND_URLS.length > 1) result.push(1);
-  return [...new Set(result)];
+  return BACKEND_URLS
+    .map((_, index) => index)
+    .filter((index) => !circuitOpen(index));
 }
 
 async function streamChatWithFailover(options = {}) {
@@ -195,10 +223,13 @@ async function streamChatWithFailover(options = {}) {
     const base = BACKEND_URLS[index];
     if (!base) continue;
 
-    transition("ONLINE", "NEXO · " + backendRole(index) + "…");
+    transition("READY", "NEXO · verificando " + backendRole(index) + "…");
     const controller = new AbortController();
+    activeControllers.add(controller);
     const timer = setTimeout(() => controller.abort(), remaining);
     let receivedToken = false;
+    let fallbackReceived = false;
+    let streamError = null;
 
     try {
       const response = await fetch(base + "/v1/ai/stream", {
@@ -259,15 +290,37 @@ async function streamChatWithFailover(options = {}) {
             assistantNode.textContent += data.text;
             assistantNode.scrollIntoView({ behavior: "smooth", block: "nearest" });
           }
+          if (eventName === "fallback" && data.text) {
+            fallbackReceived = true;
+            assistantNode.textContent += data.text;
+            finalMeta = data._meta || finalMeta;
+          }
+          if (eventName === "error") {
+            streamError = data?.reason || "stream_error";
+            finalMeta = data?._meta || finalMeta;
+          }
           if (eventName === "done") finalMeta = data._meta || null;
         }
       }
 
+      if (streamError) throw new Error(streamError);
+      if (finalMeta?.used_local_fallback || fallbackReceived) {
+        const reason = finalMeta?.final_reason || "remote_generation_failed";
+        recordBackendFailure(index, reason);
+        if (Date.now() < deadlineAt && index < BACKEND_URLS.length - 1) {
+          assistantNode.remove();
+          continue;
+        }
+        lastMeta = finalMeta;
+        assistantNode.classList.add("fallback");
+        transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
+        return { meta: finalMeta, fallback: true, client_latency_ms: Math.round(performance.now() - started) };
+      }
       if (!receivedToken) throw new Error("empty_stream");
       recordBackendSuccess(index);
       lastMeta = finalMeta;
       const degraded = index !== 0 || Boolean(finalMeta?.failover_triggered) || finalMeta?.system_status === "DEGRADED";
-      transition(degraded ? "DEGRADED" : "AI_READY", "NEXO · " + (degraded ? "DEGRADED" : "AI_READY") + " · " + backendRole(index));
+      transition(degraded ? "DEGRADED" : "AI_READY", "NEXO · " + (degraded ? "respaldo activo" : "Conectado · IA lista") + " · " + backendRole(index));
       return { meta: finalMeta, client_latency_ms: Math.round(performance.now() - started) };
     } catch (error) {
       const reason = normalizeError(error);
@@ -278,9 +331,11 @@ async function streamChatWithFailover(options = {}) {
       }
     } finally {
       clearTimeout(timer);
+      activeControllers.delete(controller);
     }
   }
 
+  transition("OFFLINE", "NEXO · backends no disponibles");
   throw new Error("NEXO no pudo iniciar streaming. " + failures.join(" "));
 }
 
@@ -360,7 +415,7 @@ form.addEventListener("submit", async (event) => {
   input.value = "";
   resizeInput();
   send.disabled = true;
-  transition("ONLINE", "NEXO · procesando…");
+  transition("READY", "NEXO · procesando…");
   try {
     await streamChatWithFailover({
       method: "POST",
