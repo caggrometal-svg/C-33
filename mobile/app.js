@@ -21,7 +21,6 @@ const status = document.getElementById("status");
 const statusDot = document.getElementById("status-dot");
 const welcome = document.getElementById("welcome");
 const settings = document.getElementById("settings");
-let activeBackendIndex = 0;
 const settingsOpen = document.getElementById("settings-open");
 const settingsClose = document.getElementById("settings-close");
 const voiceTone = document.getElementById("voice-tone");
