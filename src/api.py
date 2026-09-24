@@ -456,13 +456,18 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     except ValueError: deadline_epoch = None
     budget = DeadlineBudget(config.backend_total_timeout_ms, deadline_epoch)
 
-    messages, sources, _ = await b.prepare_messages(
-        payload.message,
-        user_id=payload.user_id,
-        conversation_id=payload.conversation_id,
-        personality_mode=payload.personality,
-        budget=budget,
+    messages, sources, _ = await _run_with_disconnect(
+        request,
+        b.prepare_messages(
+            payload.message,
+            user_id=payload.user_id,
+            conversation_id=payload.conversation_id,
+            personality_mode=payload.personality,
+            budget=budget,
+        ),
     )
+    if budget.remaining_ms <= 0:
+        raise HTTPException(status_code=504, detail={"reason":"backend_deadline_exceeded"})
 
     async def events():
         pieces: list[str] = []
