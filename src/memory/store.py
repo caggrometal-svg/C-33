@@ -22,6 +22,9 @@ class MemoryEntry:
     assistant_text: str
     summary: str
     tags: list[str] = field(default_factory=list)
+    debate_topic: str = ""
+    user_position: str = ""
+    central_arguments: list[str] = field(default_factory=list)
 
 
 class MemoryStore:
@@ -49,6 +52,9 @@ class MemoryStore:
         *,
         summary: str | None = None,
         tags: list[str] | None = None,
+        debate_topic: str = "",
+        user_position: str = "",
+        central_arguments: list[str] | None = None,
     ) -> MemoryEntry:
         """Save an interaction and return the persisted entry."""
         user_text = user_text.strip()
@@ -63,6 +69,9 @@ class MemoryStore:
             assistant_text=assistant_text,
             summary=(summary or assistant_text[:240]).strip(),
             tags=sorted({tag.strip().lower() for tag in (tags or []) if tag.strip()}),
+            debate_topic=debate_topic.strip(),
+            user_position=user_position.strip(),
+            central_arguments=[item.strip() for item in (central_arguments or []) if item.strip()],
         )
         async with self._lock:
             entries = await asyncio.to_thread(self._load_sync)
@@ -142,6 +151,9 @@ class MemoryStore:
                         assistant_text=str(item["assistant_text"]),
                         summary=str(item.get("summary", "")),
                         tags=[str(tag) for tag in item.get("tags", [])],
+                        debate_topic=str(item.get("debate_topic", "")),
+                        user_position=str(item.get("user_position", "")),
+                        central_arguments=[str(value) for value in item.get("central_arguments", [])],
                     )
                 )
             except (KeyError, TypeError, ValueError):
