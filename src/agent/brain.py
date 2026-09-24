@@ -135,7 +135,7 @@ class Brain:
         # Conversational fast path: ordinary chat should not require a planner round-trip.
         lower = prompt.lower()
         needs_extended_reasoning = bool(
-            re.search(r"https?://\\S+", prompt)
+            re.search(r"https?://\S+", prompt)
             or any(
                 marker in lower
                 for marker in {
