@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from dataclasses import dataclass
@@ -60,13 +61,24 @@ class CompatibleChatModel:
             "temperature": self.temperature,
         }
         url = f"{self.base_url}/chat/completions"
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-        ) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout,
+                    follow_redirects=True,
+                ) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    response.raise_for_status()
+                    data = response.json()
+                break
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                retryable = status == 429 or 500 <= status < 600
+                if not retryable or attempt == 2:
+                    raise
+                await asyncio.sleep(0.5 * (2 ** attempt))
+        else:
+            raise RuntimeError("Model request exhausted its retry budget")
 
         try:
             content = data["choices"][0]["message"]["content"]
@@ -301,8 +313,8 @@ class Brain:
                         },
                     ]
                 )
-            except (RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError):
-                return self._fallback_synthesis(prompt, context)
+            except (RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError) as exc:
+                raise RuntimeError("Configured remote model failed to generate a response") from exc
         return self._fallback_synthesis(prompt, context)
 
     @staticmethod
@@ -399,13 +411,10 @@ class Brain:
     @staticmethod
     def _fallback_synthesis(prompt: str, context: list[str]) -> str:
         """Return a transparent local answer when no external model is configured."""
-        if not context:
-            return (
-                "C-33 recibió la consulta, pero no hay un modelo configurado para generar una respuesta "
-                "semántica. Configura MODEL_BASE_URL y MODEL_NAME en .env para activar síntesis de modelo."
-            )
-        evidence = "\n".join(f"- {item}" for item in context[-5:])
-        return f"Contexto recuperado para: {prompt}\n\n{evidence}"
+        return (
+            "C-33 recibió la consulta, pero está funcionando en modo local sin un modelo remoto configurado. "
+            "La memoria y el contexto interno se mantienen ocultos y no se muestran como respuesta."
+        )
 
     @staticmethod
     def _debate_topic(prompt: str) -> str:
