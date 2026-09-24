@@ -384,8 +384,8 @@ class ProviderCascade:
                     detail = str(exc).lower()
                     reason = (
                         "tls_failure"
-                        if "ssl" in detail or "tls" in detail
-                        else ("dns_failure" if "dns" in detail or "name resolution" in detail else "connection_reset")
+                        if "ssl" in detail or "tls" in detail or "certificate" in detail
+                        else ("dns_failure" if "dns" in detail or "name resolution" in detail or "name or service not known" in detail else "connection_reset")
                     )
                 else:
                     reason = "connection_error"
