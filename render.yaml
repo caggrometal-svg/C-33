@@ -1,7 +1,15 @@
 services:
   - type: web
-    name: c33-api
-    runtime: docker
+    name: iac33-backend
+    env: docker
     plan: free
-    healthCheckPath: /health
-    autoDeploy: true
+    region: oregon
+    buildCommand: docker build -t c33-backend .
+    startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: MODEL_NAME
+        value: gpt-4o
+      - key: PORT
+        value: 10000

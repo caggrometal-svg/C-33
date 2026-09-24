@@ -1,8 +1,16 @@
-"""FastAPI service entry point for C-33."""
+"""FastAPI HTTP service for C-33."""
 
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+# The Docker deployment runs with PYTHONPATH=/app. Keep src-package imports
+# compatible without requiring an additional package-install step in the image.
+_SRC_DIR = str(Path(__file__).resolve().parent)
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +25,7 @@ settings: Settings = load_settings()
 
 
 def build_brain() -> Brain:
-    """Build the C-33 runtime using environment configuration."""
+    """Build the C-33 runtime from environment configuration."""
     model_base_url = settings.model_base_url
     api_key = settings.model_api_key or os.getenv("OPENAI_API_KEY", "").strip() or None
 
@@ -56,7 +64,7 @@ brain = build_brain()
 app = FastAPI(
     title="C-33 API",
     version="0.2.0",
-    description="Backend API for the C-33 dialectical reasoning engine.",
+    description="HTTP API for the C-33 reasoning engine.",
 )
 
 app.add_middleware(
@@ -69,16 +77,18 @@ app.add_middleware(
 
 
 class ChatRequest(BaseModel):
-    """Chat request accepted by both mobile API routes."""
+    """Chat request accepted by both public chat routes."""
 
     message: str = Field(min_length=1, max_length=20_000)
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(default="anonymous", min_length=1, max_length=256)
     stream: bool = False
 
 
 class ChatResponse(BaseModel):
-    """Observable C-33 response. Trace contains actions, not hidden chain-of-thought."""
+    """Observable chat response without hidden chain-of-thought."""
 
+    status: str
+    service: str
     user_id: str
     synthesis: str
     web_searches: list[str]
@@ -88,27 +98,18 @@ class ChatResponse(BaseModel):
 
 @app.get("/health")
 async def health() -> dict[str, str]:
-    """Health probe for Railway and Render."""
-    return {"status": "ok", "service": "c33-api", "version": "0.2.0"}
+    """Health probe."""
+    return {"status": "ok", "service": "C-33"}
 
 
 @app.get("/status")
 async def status() -> dict[str, str]:
-    """Runtime status probe for Railway and Render."""
-    model_configured = bool(
-        settings.model_name
-        and (settings.model_base_url or os.getenv("OPENAI_API_KEY", "").strip())
-    )
-    return {
-        "status": "ok",
-        "service": "c33-api",
-        "environment": settings.environment,
-        "model": "configured" if model_configured else "local-fallback",
-    }
+    """Runtime status probe."""
+    return {"status": "ok", "service": "C-33"}
 
 
 async def _chat(payload: ChatRequest) -> ChatResponse:
-    """Run Brain.process and expose synthesis plus observable evidence."""
+    """Run Brain.process and expose only observable results."""
     try:
         result: AgentResult = await brain.process(payload.message)
     except ValueError as exc:
@@ -117,6 +118,8 @@ async def _chat(payload: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail="C-33 processing failed") from exc
 
     return ChatResponse(
+        status="ok",
+        service="C-33",
         user_id=payload.user_id,
         synthesis=result.response,
         web_searches=result.sources,
@@ -132,13 +135,13 @@ async def _chat(payload: ChatRequest) -> ChatResponse:
     )
 
 
-@app.post("/v1/chat", response_model=ChatResponse)
-async def v1_chat(payload: ChatRequest) -> ChatResponse:
-    """Primary versioned chat endpoint."""
+@app.post("/api/chat", response_model=ChatResponse)
+async def api_chat(payload: ChatRequest) -> ChatResponse:
+    """Primary compatibility chat endpoint."""
     return await _chat(payload)
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def api_chat(payload: ChatRequest) -> ChatResponse:
-    """Compatibility chat endpoint."""
+@app.post("/v1/chat", response_model=ChatResponse)
+async def v1_chat(payload: ChatRequest) -> ChatResponse:
+    """Versioned chat endpoint."""
     return await _chat(payload)
