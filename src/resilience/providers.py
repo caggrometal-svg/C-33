@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import random
 import time
@@ -14,6 +15,8 @@ from urllib.parse import urlparse
 import httpx
 
 from .state import PostgresState
+
+logger = logging.getLogger("nexo.c33.provider")
 
 @dataclass(frozen=True, slots=True)
 class ProviderSpec:
@@ -179,15 +182,18 @@ class ProviderCascade:
                 continue
             started = time.monotonic()
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms)
+            logger.info("[NEXO_DEBUG_PROVIDER] complete_attempt provider=%s model=%s timeout_ms=%s remaining_ms=%s probe=%s", spec.provider_id, spec.model, timeout_ms, budget.remaining_ms, probe)
             try:
                 text = await self._complete_one(spec, messages, timeout_ms, probe=probe)
                 latency = int((time.monotonic()-started)*1000)
                 await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=latency)
+                logger.info("[NEXO_DEBUG_PROVIDER] complete_success provider=%s latency_ms=%s", spec.provider_id, latency)
                 attempts.append({"provider":spec.provider_id,"status":200,"latency_ms":latency})
                 return GenerationResult(text=text, meta=ProviderMeta(spec.provider_id,spec.model,index>0,len(attempts),latency,"success_after_failover" if index>0 else "success","AI_READY" if index==0 else "DEGRADED"))
             except GenerationFailure as exc:
                 latency = int((time.monotonic()-started)*1000)
                 await self.state.circuit_failure(spec.provider_id, reason=exc.reason, status=exc.http_status, model=spec.model, latency_ms=latency, cooldown_ms=self._cooldown_ms(exc))
+                logger.warning("[NEXO_DEBUG_PROVIDER] complete_failure provider=%s reason=%s http_status=%s latency_ms=%s", spec.provider_id, exc.reason, exc.http_status, latency)
                 attempts.append({"provider":spec.provider_id,"status":exc.http_status,"reason":exc.reason,"latency_ms":latency,"retry_after_ms":exc.retry_after_ms})
                 continue
         final_reason = self._final_reason(attempts)
@@ -362,6 +368,7 @@ class ProviderCascade:
             if not decision.allowed:
                 attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms}); continue
             timeout_ms=budget.provider_timeout_ms(spec.timeout_ms); started=time.monotonic(); got_token=False
+            logger.info("[NEXO_DEBUG_PROVIDER] stream_attempt provider=%s model=%s timeout_ms=%s remaining_ms=%s", spec.provider_id, spec.model, timeout_ms, budget.remaining_ms)
             headers={"Content-Type":"application/json","Accept":"text/event-stream"}
             api_key=os.getenv(spec.api_key_env,"").strip() if spec.api_key_env else ""
             if api_key: headers["Authorization"]=f"Bearer {api_key}"
@@ -370,6 +377,7 @@ class ProviderCascade:
                 timeout=httpx.Timeout(timeout_ms/1000,connect=min(2.0,timeout_ms/1000),read=timeout_ms/1000,write=2.0,pool=1.0)
                 async with httpx.AsyncClient(timeout=timeout,follow_redirects=True,transport=self.transport) as client:
                     async with client.stream("POST",f"{spec.base_url}/chat/completions",headers=headers,json=payload) as response:
+                        logger.info("[NEXO_DEBUG_PROVIDER] stream_http provider=%s status=%s", spec.provider_id, response.status_code)
                         if response.status_code!=200:
                             if response.status_code==429:
                                 raw=response.headers.get("retry-after","0")
@@ -387,6 +395,7 @@ class ProviderCascade:
                                 if not got_token:
                                     raise GenerationFailure("empty_stream",http_status=502,attempts=[])
                                 latency=int((time.monotonic()-started)*1000)
+                                logger.info("[NEXO_DEBUG_PROVIDER] stream_success provider=%s latency_ms=%s tokens=%s", spec.provider_id, latency, got_token)
                                 await self.state.circuit_success(spec.provider_id,model=spec.model,latency_ms=latency)
                                 return
                             try:
@@ -400,6 +409,7 @@ class ProviderCascade:
             except GenerationFailure as exc:
                 latency=int((time.monotonic()-started)*1000)
                 await self.state.circuit_failure(spec.provider_id,reason=exc.reason,status=exc.http_status,model=spec.model,latency_ms=latency,cooldown_ms=self._cooldown_ms(exc))
+                logger.warning("[NEXO_DEBUG_PROVIDER] stream_generation_failure provider=%s reason=%s http_status=%s latency_ms=%s got_token=%s", spec.provider_id, exc.reason, exc.http_status, latency, got_token)
                 attempts.append({"provider":spec.provider_id,"status":exc.http_status,"reason":exc.reason,"latency_ms":latency})
                 if got_token: raise
             except (httpx.TimeoutException,httpx.ConnectError,httpx.HTTPError) as exc:
@@ -444,6 +454,7 @@ class ProviderCascade:
                     latency_ms=latency,
                     cooldown_ms=30_000,
                 )
+                logger.warning("[NEXO_DEBUG_PROVIDER] stream_http_failure provider=%s reason=%s status=%s latency_ms=%s got_token=%s", spec.provider_id, reason, status, latency, got_token)
                 if got_token:
                     raise GenerationFailure("stream_interrupted",http_status=502,attempts=attempts) from exc
                 attempts.append({"provider":spec.provider_id,"status":status,"reason":reason})
