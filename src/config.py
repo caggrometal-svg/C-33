@@ -104,11 +104,11 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         or os.getenv("OPENAI_API_KEY", "").strip()
         or None
     )
-    model_base_url = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
+    model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     if not model_base_url and model_api_key:
         model_base_url = "https://api.openai.com/v1"
 
-    model_name = os.getenv("MODEL_NAME", "").strip()
+    model_name = os.getenv("MODEL_NAME", "auto").strip()
     if model_api_key and not model_name:
         raise ConfigurationError("MODEL_NAME is required when an AI API key is configured")
 
