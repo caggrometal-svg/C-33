@@ -5,7 +5,7 @@ import unittest
 import httpx
 
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderSpec
-from resilience.state import StateStore
+from resilience.state import PostgresState
 
 class FakeState:
     def __init__(self):
@@ -50,7 +50,7 @@ class FaultTransport(httpx.AsyncBaseTransport):
 
 class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_metadata_helper_handles_postgres_json_values(self):
-        self.assertEqual(StateStore._metadata_dict(None), {})
+        self.assertEqual(PostgresState._metadata_dict(None), {})
         self.assertEqual(StateStore._metadata_dict({"topic": "Hola"}), {"topic": "Hola"})
         self.assertEqual(StateStore._metadata_dict('{"topic":"Hola"}'), {"topic": "Hola"})
 
