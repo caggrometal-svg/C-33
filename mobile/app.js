@@ -6,7 +6,7 @@ const READY_PATH = C.READY_PATH || "/ready";
 const AI_READY_PATH = C.AI_READY_PATH || "/v1/ai-ready";
 const CLIENT_TIMEOUT_MS = Number(C.CLIENT_TIMEOUT_MS || 22000);
 const PROBE_TIMEOUT_MS = Number(C.PROBE_TIMEOUT_MS || 2500);
-const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V2";
+const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V3";
 const USER_ID_KEY = "C33_USER_ID";
 const CONVERSATION_KEY = "C33_CONVERSATION_ID";
 
@@ -184,7 +184,7 @@ async function probeBackend(index) {
     const ai = await fetchBounded(base + AI_READY_PATH, {}, remaining);
     let aiData = null;
     try { aiData = await ai.json(); } catch {}
-    if (ai.ok && aiData?.status === "ai_ready") {
+    if (ai.ok && aiData?.status === "ai_ready" && Boolean(aiData?.provider_used)) {
       recordBackendSuccess(index);
       return {
         backend: index,
@@ -453,8 +453,8 @@ form.addEventListener("submit", async (event) => {
     });
   } catch (error) {
     if (error?.code === "REMOTE_EXHAUSTED") {
-      addMessage(localFallbackMessage(message), "assistant fallback");
-      transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
+      addMessage("NEXO no pudo conectarse a la IA remota. No se activó respaldo local.", "error");
+      transition("OFFLINE", "NEXO · IA remota no disponible");
     } else {
       addMessage(error.message || "Error de conexión.", "error");
       transition("DEGRADED", "NEXO · servicio no disponible");
