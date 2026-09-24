@@ -288,8 +288,12 @@ class ProviderCascade:
         headers = {"Content-Type":"application/json"}
         api_key = os.getenv(spec.api_key_env, "").strip() if spec.api_key_env else ""
         if api_key: headers["Authorization"] = f"Bearer {api_key}"
-        payload: dict[str, Any] = {"model":spec.model,"messages":messages,"stream":False}
-        if probe: payload.update({"max_tokens":8,"temperature":0})
+        probe_model = os.getenv("AI_PROBE_MODEL", "").strip() if probe else ""
+        effective_model = probe_model or spec.model
+        payload: dict[str, Any] = {"model":effective_model,"messages":messages,"stream":False}
+        if probe: payload.update({"max_tokens":1,"temperature":0})
+        if probe:
+            logger.info("[NEXO_DEBUG_PROVIDER] probe_model provider=%s model=%s configured_probe_model=%s", spec.provider_id, effective_model, bool(probe_model))
         timeout = httpx.Timeout(timeout_ms/1000, connect=min(2.0,timeout_ms/1000), read=timeout_ms/1000, write=min(2.0,timeout_ms/1000), pool=min(1.0,timeout_ms/1000))
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, transport=self.transport) as client:
