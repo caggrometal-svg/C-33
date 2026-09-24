@@ -74,9 +74,8 @@ if (settings && settingsOpen && settingsClose) {
   applySettings();
 }
 
-function localFallbackMessage(message, failures) {
-  const detail = failures?.length ? " (" + failures.join(" | ") + ")" : "";
-  return "NEXO está operando en respaldo local. La IA remota no está disponible" + detail + ". Consulta recibida: " + message.slice(0, 200);
+function localFallbackMessage(message) {
+  return "NEXO está operando en respaldo local. La IA remota no está disponible. Consulta recibida: " + message.slice(0, 200);
 }
 
 function addMessage(text, role) {
@@ -440,7 +439,7 @@ form.addEventListener("submit", async (event) => {
     });
   } catch (error) {
     if (error?.code === "REMOTE_EXHAUSTED") {
-      addMessage(localFallbackMessage(message, [error.message]), "assistant fallback");
+      addMessage(localFallbackMessage(message), "assistant fallback");
       transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
     } else {
       addMessage(error.message || "Error de conexión.", "error");
