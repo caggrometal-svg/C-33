@@ -143,10 +143,13 @@ function setStatus(text, mode = "") {
 
 async function requestWithFailover(path, options = {}) {
   let lastError = new Error("Todos los servidores están desconectados.");
+  const isChat = path === API_PATH;
+  const timeoutMs = isChat ? 90000 : 10000;
+
   for (const baseUrl of BACKEND_URLS) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       try {
         const response = await fetch(`${baseUrl}${path}`, {
           ...options,
@@ -158,7 +161,15 @@ async function requestWithFailover(path, options = {}) {
         clearTimeout(timeout);
       }
     } catch (error) {
-      lastError = error instanceof Error ? error : new Error("Error de conexión.");
+      if (error?.name === "AbortError") {
+        lastError = new Error(
+          isChat
+            ? "NEXO tardó demasiado en responder. El servidor sigue procesando la solicitud."
+            : "Tiempo de conexión agotado.",
+        );
+      } else {
+        lastError = error instanceof Error ? error : new Error("Error de conexión.");
+      }
     }
   }
   throw lastError;
