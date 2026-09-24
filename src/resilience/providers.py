@@ -42,6 +42,9 @@ class GenerationResult:
     text: str
     meta: ProviderMeta
 
+class ProviderConfigurationError(ValueError):
+    """Raised when the provider topology is internally inconsistent."""
+
 class GenerationFailure(RuntimeError):
     def __init__(self, reason: str, *, http_status: int, attempts: list[dict[str, Any]], retry_after_ms: int = 0) -> None:
         super().__init__(reason)
@@ -71,12 +74,25 @@ class ProviderCascade:
 
     def __init__(self, state: PostgresState, specs: list[ProviderSpec], order: list[str], transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.state = state
-        by_id = {spec.provider_id: spec for spec in specs}
-        if order:
-            # Explicit order is both priority and allowlist.
-            self.providers = [by_id[name] for name in order if name in by_id]
+        if not specs:
+            self.providers = []
         else:
-            self.providers = list(specs)
+            by_id = {spec.provider_id: spec for spec in specs}
+            if len(by_id) != len(specs):
+                raise ProviderConfigurationError("duplicate_provider_ids")
+            normalized_order = list(dict.fromkeys(order))
+            if len(normalized_order) != len(order):
+                raise ProviderConfigurationError("provider_order_contains_duplicates")
+            unknown = sorted(set(order) - set(by_id))
+            missing = sorted(set(by_id) - set(order))
+            if unknown or missing:
+                detail = []
+                if unknown:
+                    detail.append("unknown=" + ",".join(unknown))
+                if missing:
+                    detail.append("missing=" + ",".join(missing))
+                raise ProviderConfigurationError("provider_order_mismatch:" + ";".join(detail))
+            self.providers = [by_id[name] for name in order]
         self.require_redundancy = os.getenv("REQUIRE_PROVIDER_REDUNDANCY", "true").strip().lower() == "true"
         self.transport = transport
 
@@ -102,7 +118,10 @@ class ProviderCascade:
                 if pid == "kilo-m3-free":
                     model = "kilo-auto/free"
                     pid = "kilo"
-                specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
+                api_key_env = str(item.get("api_key_env", "")).strip() or None
+                if api_key_env and not os.getenv(api_key_env, "").strip():
+                    raise ProviderConfigurationError(f"missing_api_key_for_provider:{pid}")
+                specs.append(ProviderSpec(pid, base, model, api_key_env, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
         else:
             configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
             configured_model = os.getenv("MODEL_NAME", "").strip()
@@ -164,16 +183,28 @@ class ProviderCascade:
         return len(self.providers)
 
     @property
+    def configured_provider_ids(self) -> list[str]:
+        return [provider.provider_id for provider in self.providers]
+
+    @property
     def failure_domains(self) -> list[str]:
         return list(dict.fromkeys(p.failure_domain for p in self.providers))
 
-    def assert_ready_configuration(self) -> None:
+    def validate_configuration(self) -> None:
+        """Fail-fast validation for startup; never silently drops providers."""
         if not self.providers:
-            raise GenerationFailure("no_providers_configured", http_status=503, attempts=[])
+            raise ProviderConfigurationError("no_providers_configured")
         if self.require_redundancy and len(self.providers) < 2:
-            raise GenerationFailure("provider_redundancy_not_configured", http_status=503, attempts=[])
+            raise ProviderConfigurationError("provider_redundancy_not_configured")
         if self.require_redundancy and len(self.failure_domains) < 2:
-            raise GenerationFailure("provider_failure_domains_not_diverse", http_status=503, attempts=[])
+            raise ProviderConfigurationError("provider_failure_domains_not_diverse")
+
+    def assert_ready_configuration(self) -> None:
+        try:
+            self.validate_configuration()
+        except ProviderConfigurationError as exc:
+            reason = str(exc).split(":", 1)[0]
+            raise GenerationFailure(reason, http_status=503, attempts=[]) from exc
 
     async def complete(self, messages: list[dict[str, str]], budget: DeadlineBudget, *, probe: bool = False) -> GenerationResult:
         self.assert_ready_configuration()
