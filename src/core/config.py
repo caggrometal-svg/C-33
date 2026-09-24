@@ -73,7 +73,7 @@ def load_settings(dotenv_path: str | None = ".env") -> Settings:
         or os.getenv("OPENAI_API_KEY", "").strip()
         or None
     )
-    model_base_url = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
+    model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     if not model_base_url and os.getenv("OPENAI_API_KEY", "").strip():
         model_base_url = "https://api.openai.com/v1"
 
@@ -87,7 +87,7 @@ def load_settings(dotenv_path: str | None = ".env") -> Settings:
         search_max_results=_env_int("SEARCH_MAX_RESULTS", 5),
         model_base_url=model_base_url,
         model_api_key=api_key,
-        model_name=os.getenv("MODEL_NAME", "").strip(),
+        model_name=os.getenv("MODEL_NAME", "auto").strip(),
         model_temperature=_env_float("MODEL_TEMPERATURE", 0.2, minimum=0.0),
         memory_file=os.getenv("MEMORY_FILE", "data/memory.json").strip()
         or "data/memory.json",
