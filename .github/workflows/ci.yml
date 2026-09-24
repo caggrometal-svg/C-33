@@ -23,15 +23,33 @@ jobs:
       - name: Validate NEXO mobile JavaScript
         working-directory: mobile
         run: node --check app.js
+
+      - name: Wait for exact Railway deployment
+        env:
+          C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            status="$(curl -sS --max-time 10 "${C33_BACKUP_URL}/status" || true)"
+            echo "attempt ${attempt}: ${status}"
+            if echo "${status}" | python -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("deployment_sha")==sys.argv[1] and d.get("status") in {"ok","degraded"} else 1)' "${EXPECTED_SHA}"; then
+              echo "RAILWAY_DEPLOYMENT_SHA_OK"
+              break
+            fi
+            if [ "${attempt}" -eq 36 ]; then
+              echo "Railway did not expose the expected deployment SHA in time." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+
       - name: Smoke test Railway C-33 chat
         env:
           C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
         run: |
           set -euo pipefail
           body='{"message":"Responde exactamente C33_CHAT_SMOKE_OK","user_id":"github-smoke","stream":false,"personality":"base","voice_tone":"neutral"}'
-          response="$(curl -fsS --max-time 60 \
-            -H "Content-Type: application/json" \
-            -X POST "${C33_BACKUP_URL}/v1/chat" \
-            --data "${body}")"
+          response="$(curl -fsS --max-time 60             -H "Content-Type: application/json"             -X POST "${C33_BACKUP_URL}/v1/chat"             --data "${body}")"
           echo "${response}"
-          echo "${response}" | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"; assert isinstance(d.get("synthesis"),str) and d["synthesis"].strip(); print("C33_CHAT_SMOKE_OK")'
+          echo "${response}" | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"; assert d.get("deployment_sha")==sys.argv[1]; assert isinstance(d.get("synthesis"),str) and d["synthesis"].strip(); print("C33_CHAT_SMOKE_OK")' "${EXPECTED_SHA}"
