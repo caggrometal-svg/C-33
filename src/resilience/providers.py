@@ -296,7 +296,7 @@ class ProviderCascade:
             raise GenerationFailure("timeout",http_status=504,attempts=[]) from exc
         except httpx.ConnectError as exc:
             detail=str(exc).lower()
-            reason="tls_failure" if "ssl" in detail or "tls" in detail else ("dns_failure" if "dns" in detail or "name resolution" in detail else "connection_reset")
+            reason="tls_failure" if "ssl" in detail or "tls" in detail or "certificate" in detail else ("dns_failure" if "dns" in detail or "name resolution" in detail or "name or service not known" in detail else "connection_reset")
             raise GenerationFailure(reason,http_status=502,attempts=[]) from exc
         except httpx.HTTPError as exc:
             raise GenerationFailure("connection_error",http_status=502,attempts=[]) from exc
