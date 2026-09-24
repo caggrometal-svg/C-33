@@ -132,6 +132,44 @@ class Brain:
         used_actions: set[str] = set()
         context.insert(0, self.nexo.planning_guidance(prompt, context))
 
+        # Conversational fast path: ordinary chat should not require a planner round-trip.
+        lower = prompt.lower()
+        needs_extended_reasoning = bool(
+            re.search(r"https?://\\S+", prompt)
+            or any(
+                marker in lower
+                for marker in {
+                    "latest", "today", "ahora", "actual", "actualmente", "current",
+                    "news", "noticia", "precio", "price", "fuente", "verifica",
+                    "comprueba", "evidencia", "prueba", "debate", "argumento",
+                    "controversia", "critica", "crítica", "versus", "vs", "realmente",
+                    "2026",
+                }
+            )
+        )
+        if not needs_extended_reasoning:
+            response = await self._synthesize(prompt, context, personality_mode=personality_mode)
+            await self.memory.save(
+                prompt,
+                response,
+                summary=response[:240],
+                tags=["conversation", "nexo", "learned"],
+                debate_topic=self._debate_topic(prompt),
+                user_position=prompt[:500],
+                central_arguments=self._central_arguments(prompt, response),
+            )
+            await self.memory.learn(
+                topic=self._debate_topic(prompt),
+                knowledge=response,
+                sources=[],
+            )
+            return AgentResult(
+                response=response,
+                trace=[AgentTrace(step=1, action="final", detail="conversational_fast_path")],
+                sources=[],
+                memory_hits=memory_hits,
+            )
+
         for step in range(1, self.max_steps + 1):
             decision = await self._decide(prompt, context, used_actions, personality_mode=personality_mode)
             action = decision["action"]
@@ -236,7 +274,7 @@ class Brain:
                 parsed = self._parse_decision(raw)
                 if parsed["action"] not in used_actions or parsed["action"] == "final":
                     return parsed
-            except (RuntimeError, ValueError, KeyError, TypeError):
+            except (RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError):
                 return self._heuristic_decision(prompt, context, used_actions)
         return self._heuristic_decision(prompt, context, used_actions)
 
@@ -263,7 +301,7 @@ class Brain:
                         },
                     ]
                 )
-            except (RuntimeError, ValueError, KeyError, TypeError):
+            except (RuntimeError, ValueError, KeyError, TypeError, httpx.HTTPError):
                 return self._fallback_synthesis(prompt, context)
         return self._fallback_synthesis(prompt, context)
 
