@@ -179,7 +179,7 @@ async function requestWithFailover(path, options = {}) {
 
     const isPrimary = index === PRIMARY_BACKEND_INDEX;
     const attemptMs = isChat
-      ? (isPrimary ? 6000 : 45000)
+      ? 45000
       : (isPrimary ? 2500 : 7000);
 
     setStatus(
