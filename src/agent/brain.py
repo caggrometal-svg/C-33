@@ -293,10 +293,17 @@ class Brain:
             "price",
             "2026",
         }
+        debate_markers = {
+            "debate", "argumento", "argumentos", "tesis", "antitesis", "antítesis",
+            "controversia", "polémica", "polemica", "es verdad", "realmente",
+            "evidencia", "prueba", "falacia", "versus", "vs", "discutir",
+            "dispute", "claim", "counterargument", "hypothesis",
+        }
         needs_web = any(marker in lower for marker in current_markers)
-        if needs_web and "web_search" not in used_actions:
+        contested = any(marker in lower for marker in debate_markers)
+        if (needs_web or contested) and "web_search" not in used_actions:
             return {"action": "web_search", "argument": prompt}
-        if needs_web and "web_search_counter" not in used_actions:
+        if (needs_web or contested) and "web_search_counter" not in used_actions:
             return {"action": "web_search_counter", "argument": prompt}
         if context and "memory" not in used_actions:
             return {"action": "memory", "argument": prompt}
@@ -308,7 +315,11 @@ class Brain:
     def _memory_context(entries: list[MemoryEntry]) -> list[str]:
         """Format memory entries for the planner without exposing internal storage details."""
         return [
-            f"Memory {entry.created_at}: user={entry.user_text} | assistant={entry.assistant_text}"
+            (
+                f"Memory {entry.created_at}: topic={entry.debate_topic or 'general'} | "
+                f"user_position={entry.user_position or entry.user_text} | "
+                f"arguments={'; '.join(entry.central_arguments) or entry.summary}"
+            )
             for entry in entries
         ]
 
@@ -342,7 +353,7 @@ class Brain:
 
     @staticmethod
     def _debate_topic(prompt: str) -> str:
-        return re.sub(r"\\s+", " ", prompt).strip()[:180]
+        return re.sub(r"\s+", " ", prompt).strip()[:180]
 
     @staticmethod
     def _central_arguments(prompt: str, response: str) -> list[str]:
