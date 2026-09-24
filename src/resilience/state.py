@@ -79,6 +79,7 @@ class CircuitDecision:
     state: str
     cooldown_ms: int
 
+
 @dataclass(frozen=True, slots=True)
 class ReplicationMessage:
     message_id: str
@@ -107,6 +108,23 @@ class PostgresState:
                 return (await conn.fetchval("SELECT 1")) == 1
         except (OSError, asyncpg.PostgresError):
             return False
+
+    @staticmethod
+    def _metadata_dict(value: Any) -> dict[str, Any]:
+        if value is None:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return {}
+            return dict(parsed) if isinstance(parsed, dict) else {}
+        try:
+            return dict(value)
+        except (TypeError, ValueError):
+            return {}
 
     async def append_message(
         self,
@@ -211,7 +229,7 @@ class PostgresState:
         selected = recent + [row for _, row in scored[: max(0, limit - len(recent))]]
         result: list[MemoryEntry] = []
         for row in selected[:limit]:
-            metadata = dict(row["metadata"] or {})
+            metadata = self._metadata_dict(row["metadata"])
             role = str(row["role"])
             result.append(
                 MemoryEntry(
@@ -483,7 +501,7 @@ class PostgresState:
             seq=int(row["seq"]),
             role=str(row["role"]),
             content=str(row["content"]),
-            metadata=dict(row["metadata"] or {}),
+            metadata=self._metadata_dict(row["metadata"]),
             request_id=str(row["request_id"]) if row["request_id"] is not None else None,
             created_at=row["created_at"].astimezone(timezone.utc).isoformat(),
         )
