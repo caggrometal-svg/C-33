@@ -19,9 +19,17 @@
           <p>C-33</p>
         </div>
       </div>
-      <div class="connection" aria-live="polite">
-        <span id="status-dot" class="status-dot"></span>
-        <span id="status">Desconectado</span>
+      <div class="topbar-actions">
+        <div class="connection" aria-live="polite">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status">Desconectado</span>
+        </div>
+        <button id="settings-open" class="settings-button" type="button" aria-label="Abrir configuraciones" title="Configuraciones">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/>
+            <path d="m19.4 15 .1-.2a2 2 0 0 0 0-5.6l-.1-.2 1.1-1.9-2-2-1.9 1.1-.2-.1a6.5 6.5 0 0 0-5.6 0l-.2.1L8.6 5l-2 2 1.1 1.9-.1.2a6.5 6.5 0 0 0 0 5.6l.1.2L6.6 17l2 2 1.9-1.1.2.1a6.5 6.5 0 0 0 5.6 0l.2-.1 1.9 1.1 2-2-1-1.9Z"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -57,6 +65,71 @@
         </div>
       </div>
     </form>
+    <section id="settings" class="settings-panel" aria-hidden="true" aria-labelledby="settings-title">
+      <div class="settings-backdrop" data-settings-close></div>
+      <div class="settings-card" role="dialog" aria-modal="true">
+        <div class="settings-head">
+          <div>
+            <span class="settings-kicker">C-33</span>
+            <h2 id="settings-title">Configuraciones</h2>
+          </div>
+          <button id="settings-close" class="settings-close" type="button" aria-label="Cerrar configuraciones">×</button>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Tonos de voz de NEXO</strong>
+            <span>Preferencia preparada para la salida de voz.</span>
+          </div>
+          <select id="voice-tone" class="setting-control" aria-label="Tono de voz">
+            <option value="neutral">Natural</option>
+            <option value="deep">Grave</option>
+            <option value="soft">Suave</option>
+            <option value="energetic">Energético</option>
+          </select>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Máxima variedad de colores</strong>
+            <span>Amplía los acentos visuales además del rojo y verde neón.</span>
+          </div>
+          <label class="switch">
+            <input id="color-variety" type="checkbox">
+            <span class="switch-track" aria-hidden="true"></span>
+          </label>
+        </div>
+
+        <div class="setting-row">
+          <div class="setting-copy">
+            <strong>Tamaño de fuente</strong>
+            <span>Ajusta el texto de toda la conversación.</span>
+          </div>
+          <select id="font-size" class="setting-control" aria-label="Tamaño de fuente">
+            <option value="small">Pequeña</option>
+            <option value="medium">Mediana</option>
+            <option value="large">Grande</option>
+            <option value="xl">Muy grande</option>
+          </select>
+        </div>
+
+        <div class="setting-row personality-row">
+          <div class="setting-copy">
+            <strong>Personalidad de NEXO</strong>
+            <span>El estilo cambia la forma de expresarse, no sus reglas centrales.</span>
+          </div>
+          <div id="personality-options" class="personality-options">
+            <button type="button" class="personality-option" data-personality="aggressive">Agresivo</button>
+            <button type="button" class="personality-option" data-personality="comic">Cómico</button>
+            <button type="button" class="personality-option" data-personality="conspiranoic">Conspiranoico</button>
+          </div>
+        </div>
+
+        <div class="settings-foot">
+          <span id="settings-saved">Guardado automáticamente</span>
+        </div>
+      </div>
+    </section>
   </main>
   <script src="config.js"></script>
   <script src="app.js"></script>
