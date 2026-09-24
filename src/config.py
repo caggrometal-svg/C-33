@@ -19,7 +19,7 @@ class InfrastructureConfig:
     """Validated environment required by Render and Railway."""
 
     port: int
-    database_url: str
+    database_url: str | None
     secret_keys: tuple[str, ...]
     model_name: str
     model_base_url: str
@@ -46,8 +46,10 @@ def _required_port() -> int:
     return port
 
 
-def _required_database_url() -> str:
-    value = _required_text("DATABASE_URL")
+def _optional_database_url() -> str | None:
+    value = os.getenv("DATABASE_URL", "").strip()
+    if not value:
+        return None
     parsed = urlparse(value)
     if parsed.scheme not in {"postgres", "postgresql"} or not parsed.netloc:
         raise ConfigurationError(
@@ -93,7 +95,7 @@ def _positive_float(name: str, default: float) -> float:
 
 
 def load_infrastructure_config(dotenv_path: str | None = ".env") -> InfrastructureConfig:
-    """Load and strictly validate required deployment settings."""
+    """Load and validate deployment settings; PostgreSQL is optional for stateless edge mode."""
     if dotenv_path:
         load_dotenv(dotenv_path=dotenv_path, override=False)
 
@@ -112,7 +114,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
 
     return InfrastructureConfig(
         port=_required_port(),
-        database_url=_required_database_url(),
+        database_url=_optional_database_url(),
         secret_keys=_required_secret_keys(),
         model_name=model_name,
         model_base_url=model_base_url,
