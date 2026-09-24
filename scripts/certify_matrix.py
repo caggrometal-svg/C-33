@@ -31,14 +31,18 @@ async def certify_service(
     errors: list[str] = []
     base = base.rstrip("/") + "/"
 
-    code, health = await get_json(client, urljoin(base, "health"))
-    if code != 200 or health.get("status") != "alive":
-        errors.append(f"{name}: /health not alive: HTTP {code} {health}")
+    health = {}
+    sha = None
+    for _ in range(36):
+        code, health = await get_json(client, urljoin(base, "health"))
+        if code == 200 and health.get("status") == "alive":
+            sha = health.get("deployment_sha")
+            if sha == expected_sha:
+                break
+        await asyncio.sleep(5)
+    else:
+        errors.append(f"{name}: /health did not expose expected SHA: expected {expected_sha}, got {sha}")
         return errors
-
-    sha = health.get("deployment_sha")
-    if sha != expected_sha:
-        errors.append(f"{name}: deployment SHA mismatch: expected {expected_sha}, got {sha}")
 
     code, ready = await get_json(client, urljoin(base, "ready"))
     if code != 200 or ready.get("status") != "ready":
@@ -96,6 +100,26 @@ async def certify_service(
         errors.append(f"{name}: unexpected system_status: {meta}")
     if not meta.get("provider_used") or meta.get("provider_used") == "local":
         errors.append(f"{name}: no real provider used: {meta}")
+
+    second_payload = {**payload, "message": "Using the existing conversation context, reply briefly with C33_MEMORY_OK.", "request_id": uuid.uuid4().hex}
+    second = await client.post(
+        urljoin(base, "v1/chat"),
+        headers={
+            "Content-Type": "application/json",
+            "X-C33-Deadline-Epoch-Ms": str(int(__import__("time").time() * 1000) + 20000),
+            "X-C33-Allow-Local-Fallback": "false",
+        },
+        json=second_payload,
+    )
+    if second.status_code != 200:
+        errors.append(f"{name}: second /v1/chat failed: HTTP {second.status_code} {second.text[:500]}")
+    else:
+        second_data = second.json()
+        second_meta = second_data.get("_meta") or {}
+        if not str(second_data.get("synthesis", "")).strip():
+            errors.append(f"{name}: second chat empty synthesis")
+        if second_meta.get("used_local_fallback"):
+            errors.append(f"{name}: second chat used local fallback")
     return errors
 
 async def main() -> int:
