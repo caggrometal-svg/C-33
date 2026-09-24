@@ -1,0 +1,49 @@
+name: C-33 Backend Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check health
+        run: |
+          set -euxo pipefail
+          curl -fsS --max-time 15 https://iac33-backup-production.up.railway.app/health
+          echo
+      - name: Check ready
+        run: |
+          set -euxo pipefail
+          curl -fsS --max-time 15 https://iac33-backup-production.up.railway.app/ready
+          echo
+      - name: Check AI ready
+        run: |
+          set -euxo pipefail
+          curl -fsS --max-time 15 \
+            -H 'Cache-Control: no-cache' \
+            https://iac33-backup-production.up.railway.app/v1/ai-ready
+          echo
+      - name: Check real SSE stream
+        run: |
+          set -euxo pipefail
+          body="$(curl -sS -N --max-time 25 \
+            -H 'Content-Type: application/json' \
+            -H 'Accept: text/event-stream' \
+            -H 'Cache-Control: no-cache' \
+            -H 'X-C33-Allow-Local-Fallback: false' \
+            --data '{"message":"C33 backend smoke test","user_id":"github-smoke","conversation_id":"github-smoke","request_id":"github-smoke-'${GITHUB_RUN_ID}'","stream":true}' \
+            https://iac33-backup-production.up.railway.app/v1/ai/stream)"
+          printf '%s\n' "$body"
+          grep -q 'event: token' <<<"$body"
+          grep -q 'event: done' <<<"$body"
+          if grep -q 'event: fallback' <<<"$body"; then
+            echo 'ERROR: remote stream fell back to local'
+            exit 1
+          fi
+          if grep -q 'event: error' <<<"$body"; then
+            echo 'ERROR: remote stream emitted error'
+            exit 1
+          fi
