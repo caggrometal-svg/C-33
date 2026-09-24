@@ -147,7 +147,7 @@ function setStatus(text, mode = "") {
 async function requestWithFailover(path, options = {}) {
   let lastError = new Error("Todos los servidores están desconectados.");
   const isChat = path === API_PATH;
-  const timeoutMs = isChat ? 5000 : 3000;
+  const timeoutMs = isChat ? 30000 : 10000;
   const deadline = Date.now() + timeoutMs;
   const order = BACKEND_URLS.map(
     (_, offset) => (activeBackendIndex + offset) % BACKEND_URLS.length,
@@ -158,10 +158,10 @@ async function requestWithFailover(path, options = {}) {
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) break;
 
-    // Strict 5-second total chat budget; split time so the backup can actually be tried.
+    // Give each backend enough time to respond while preserving the total failover budget.
     const attemptMs = isChat
-      ? Math.min(remainingMs, 2500)
-      : Math.min(remainingMs, 1500);
+      ? Math.min(remainingMs, 15000)
+      : Math.min(remainingMs, 5000);
 
     try {
       const controller = new AbortController();
@@ -192,8 +192,8 @@ async function requestWithFailover(path, options = {}) {
       if (error?.name === "AbortError") {
         lastError = new Error(
           isChat
-            ? "NEXO agotó los 5 segundos de conexión."
-            : "Tiempo de conexión agotado.",
+            ? "NEXO agotó el tiempo de conexión de este servidor y probó el siguiente."
+            : "Tiempo de conexión agotado; probando el siguiente servidor.",
         );
       } else {
         lastError =
