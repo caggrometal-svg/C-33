@@ -4,7 +4,7 @@ import unittest
 
 import httpx
 
-from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderSpec
+from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError, ProviderSpec
 from resilience.state import PostgresState
 
 class FakeState:
@@ -278,7 +278,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     os.environ[key] = value
 
-    def test_explicit_order_excludes_stale_legacy_provider(self):
+    def test_explicit_order_rejects_missing_configured_provider(self):
         previous = {key: os.environ.get(key) for key in (
             "AI_PROVIDERS_JSON",
             "AI_PROVIDER_ORDER",
@@ -296,6 +296,36 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             )
             os.environ["AI_PROVIDER_ORDER"] = "kilo,animica"
             os.environ["AI_DISABLED_PROVIDERS"] = ""
+            os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
+            with self.assertRaises(ProviderConfigurationError) as ctx:
+                ProviderCascade.from_environment(FakeState())
+            self.assertIn("provider_order_mismatch", str(ctx.exception))
+            self.assertIn("blockrun-cohere", str(ctx.exception))
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_explicit_order_is_deterministic_and_supports_disabled_provider(self):
+        previous = {key: os.environ.get(key) for key in (
+            "AI_PROVIDERS_JSON",
+            "AI_PROVIDER_ORDER",
+            "AI_DISABLED_PROVIDERS",
+            "REQUIRE_PROVIDER_REDUNDANCY",
+        )}
+        try:
+            os.environ["AI_PROVIDERS_JSON"] = (
+                '[{"id":"kilo-m3-free","base_url":"https://api.kilo.ai/api/gateway","model":"legacy",'
+                '"failure_domain":"kilo.ai","timeout_ms":5500},'
+                '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
+                '"failure_domain":"animica.dev","timeout_ms":5750},'
+                '{"id":"blockrun-cohere","base_url":"https://blockrun.ai/api/v1","model":"legacy",'
+                '"failure_domain":"blockrun.ai","timeout_ms":4000}]'
+            )
+            os.environ["AI_PROVIDER_ORDER"] = "blockrun-cohere,kilo,animica"
+            os.environ["AI_DISABLED_PROVIDERS"] = "blockrun-cohere"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
             cascade = ProviderCascade.from_environment(FakeState())
             self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "animica"])
