@@ -501,7 +501,7 @@ class PostgresState:
             seq=int(row["seq"]),
             role=str(row["role"]),
             content=str(row["content"]),
-            metadata=self._metadata_dict(row["metadata"]),
+            metadata=StateStore._metadata_dict(row["metadata"]),
             request_id=str(row["request_id"]) if row["request_id"] is not None else None,
             created_at=row["created_at"].astimezone(timezone.utc).isoformat(),
         )
