@@ -71,6 +71,7 @@ jobs:
 
   live:
     name: Railway live connectivity
+    if: github.event_name == 'workflow_dispatch'
     needs: [backend, mobile, android]
     runs-on: ubuntu-latest
     env:
