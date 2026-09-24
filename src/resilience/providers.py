@@ -375,10 +375,30 @@ class ProviderCascade:
                 attempts.append({"provider":spec.provider_id,"status":exc.http_status,"reason":exc.reason,"latency_ms":latency})
                 if got_token: raise
             except (httpx.TimeoutException,httpx.ConnectError,httpx.HTTPError) as exc:
-                latency=int((time.monotonic()-started)*1000); reason="timeout" if isinstance(exc,httpx.TimeoutException) else "connection_error"
-                await self.state.circuit_failure(spec.provider_id,reason=reason,status=504 if reason=="timeout" else 502,model=spec.model,latency_ms=latency,cooldown_ms=30_000)
-                if got_token: raise GenerationFailure("stream_interrupted",http_status=502,attempts=attempts) from exc
-                attempts.append({"provider":spec.provider_id,"status":504 if reason=="timeout" else 502,"reason":reason})
+                latency=int((time.monotonic()-started)*1000)
+                if isinstance(exc, httpx.TimeoutException):
+                    reason = "timeout"
+                elif isinstance(exc, httpx.ConnectError):
+                    detail = str(exc).lower()
+                    reason = (
+                        "tls_failure"
+                        if "ssl" in detail or "tls" in detail
+                        else ("dns_failure" if "dns" in detail or "name resolution" in detail else "connection_reset")
+                    )
+                else:
+                    reason = "connection_error"
+                status = 504 if reason == "timeout" else 502
+                await self.state.circuit_failure(
+                    spec.provider_id,
+                    reason=reason,
+                    status=status,
+                    model=spec.model,
+                    latency_ms=latency,
+                    cooldown_ms=30_000,
+                )
+                if got_token:
+                    raise GenerationFailure("stream_interrupted",http_status=502,attempts=attempts) from exc
+                attempts.append({"provider":spec.provider_id,"status":status,"reason":reason})
         raise GenerationFailure(self._final_reason(attempts),http_status=504 if any(a.get("status")==504 for a in attempts) else 502,attempts=attempts)
 
     @staticmethod
