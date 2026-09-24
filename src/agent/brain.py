@@ -64,19 +64,26 @@ class Brain:
                 "latest", "today", "ahora", "actual", "actualmente", "current",
                 "news", "noticia", "precio", "price", "fuente", "verifica",
                 "comprueba", "evidencia", "prueba", "2026",
+                "internet", "navega", "navegar", "navegación", "web",
+                "fecha actual", "año actual", "hora actual", "en tiempo real",
             }
         )
         if needs_web and budget.remaining_ms >= 4_000:
             try:
+                search_timeout = min(4.0, max(0.5, (budget.remaining_ms - 1_000) / 1000))
                 results = await asyncio.wait_for(
                     self.web.search(prompt),
-                    timeout=min(3.0, max(0.5, (budget.remaining_ms - 1_000) / 1000)),
+                    timeout=search_timeout,
                 )
                 for result in results[:5]:
                     sources.append(result.url)
                     context.append(f"Web evidence: {result.title} | {result.url} | {result.snippet}")
             except Exception as exc:
-                context.append(f"Web search unavailable for this turn: {type(exc).__name__}")
+                context.append(
+                    "WEB_LOOKUP_FAILED: The live internet lookup failed for this turn. "
+                    "Do not claim that a web search, browsing session, or source consultation succeeded. "
+                    f"Technical class: {type(exc).__name__}"
+                )
 
         system_content = (
             f"{NexoCore.system_prompt(personality_mode)} Answer directly and naturally. "
