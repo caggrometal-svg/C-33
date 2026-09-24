@@ -235,9 +235,7 @@ async function requestWithFailover(path, options = {}) {
 async function checkHealth() {
   try {
     await requestWithFailover(HEALTH_PATH);
-    const role = BACKEND_URLS[activeBackendIndex].includes("render.com")
-      ? "principal"
-      : "respaldo";
+    const role = backendRole(activeBackendIndex);
     setStatus(`Conectado · ${role}`, "online");
   } catch {
     setStatus("Sin conexión");
