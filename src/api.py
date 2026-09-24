@@ -316,7 +316,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
 
     logger.info("[NEXO_DEBUG_READY] probe_success provider=%s model=%s latency_ms=%s failover=%s", result.meta.provider_used, result.meta.model, result.meta.latency_ms, result.meta.failover_triggered)
     remote_ai_ready = (
-        time.monotonic() + 15.0,
+        time.monotonic() + 5.0,
         {
             "status": "ai_ready",
             "service": "C-33",
