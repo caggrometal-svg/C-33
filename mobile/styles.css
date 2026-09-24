@@ -140,8 +140,10 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
   min-width: 44px;
   height: 38px;
   padding: 0 10px;
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   border: 1px solid rgba(57,255,20,0.72);
   border-radius: 12px;
   color: var(--green);
@@ -149,6 +151,13 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
   box-shadow: 0 0 16px rgba(57,255,20,0.10), inset 0 0 10px rgba(57,255,20,0.04);
   cursor: pointer;
   transition: 160ms ease;
+  white-space: nowrap;
+}
+
+.settings-button span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
 }
 
 .settings-button svg {
@@ -616,4 +625,9 @@ textarea:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }
+}
+
+@media (max-width: 380px) {
+  .settings-button span { display: none; }
+  .settings-button { padding-left: 10px; padding-right: 10px; }
 }
