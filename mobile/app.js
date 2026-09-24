@@ -144,67 +144,93 @@ function setStatus(text, mode = "") {
   statusDot.className = `status-dot ${mode}`;
 }
 
+const PRIMARY_BACKEND_INDEX = 0;
+const BACKUP_BACKEND_INDEX = 1;
+let activeBackendIndex = PRIMARY_BACKEND_INDEX;
+let primaryCooldownUntil = 0;
+
+function backendRole(index) {
+  return index === PRIMARY_BACKEND_INDEX ? "principal" : "respaldo";
+}
+
+function normalizeNetworkError(error, backend) {
+  if (error?.name === "AbortError") {
+    return new Error(`${backendRole(backend)} agotó su tiempo de conexión.`);
+  }
+
+  if (error instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(error.message || "")) {
+    return new Error(`${backendRole(backend)} no está accesible desde este dispositivo.`);
+  }
+
+  return error instanceof Error ? error : new Error("Error de conexión.");
+}
+
 async function requestWithFailover(path, options = {}) {
-  let lastError = new Error("Todos los servidores están desconectados.");
   const isChat = path === API_PATH;
-  // Keep Render primary, but fail over quickly when it is unavailable.
-  // Railway receives the longer budget needed for real model generation.
-  const timeoutMs = isChat ? 45000 : 8000;
-  const deadline = Date.now() + timeoutMs;
-  const order = BACKEND_URLS.map(
-    (_, offset) => (activeBackendIndex + offset) % BACKEND_URLS.length,
-  );
+  const primaryCoolingDown = Date.now() < primaryCooldownUntil;
+  const order = primaryCoolingDown
+    ? [BACKUP_BACKEND_INDEX, PRIMARY_BACKEND_INDEX]
+    : [PRIMARY_BACKEND_INDEX, BACKUP_BACKEND_INDEX];
+
+  const failures = [];
 
   for (const index of order) {
     const baseUrl = BACKEND_URLS[index];
-    const remainingMs = deadline - Date.now();
-    if (remainingMs <= 0) break;
+    if (!baseUrl) continue;
 
-    const isPrimary = baseUrl.includes("render.com");
+    const isPrimary = index === PRIMARY_BACKEND_INDEX;
     const attemptMs = isChat
-      ? Math.min(remainingMs, isPrimary ? 8000 : 37000)
-      : Math.min(remainingMs, isPrimary ? 3000 : 5000);
+      ? (isPrimary ? 6000 : 45000)
+      : (isPrimary ? 2500 : 7000);
+
+    setStatus(
+      isChat
+        ? `NEXO conectando · ${backendRole(index)}…`
+        : `Comprobando ${backendRole(index)}…`,
+      "busy",
+    );
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), attemptMs);
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), attemptMs);
-      try {
-        const response = await fetch(`${baseUrl}${path}`, {
-          ...options,
-          signal: controller.signal,
-        });
+      const response = await fetch(`${baseUrl}${path}`, {
+        ...options,
+        signal: controller.signal,
+        cache: "no-store",
+      });
 
-        if (!response.ok) {
-          let detail = `HTTP ${response.status}`;
-          try {
-            const body = await response.json();
-            detail = body?.detail || body?.message || detail;
-          } catch {
-            // Keep the HTTP status when the server returned no JSON.
-          }
-          throw new Error(detail);
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try {
+          const body = await response.json();
+          detail = body?.detail || body?.message || detail;
+        } catch {
+          // Conserva el estado HTTP cuando la respuesta no es JSON.
         }
+        throw new Error(detail);
+      }
 
-        activeBackendIndex = index;
-        return response;
-      } finally {
-        clearTimeout(timeout);
-      }
+      activeBackendIndex = index;
+      if (isPrimary) primaryCooldownUntil = 0;
+      return response;
     } catch (error) {
-      if (error?.name === "AbortError") {
-        lastError = new Error(
-          isChat
-            ? "NEXO agotó el tiempo de conexión de este servidor y probó el siguiente."
-            : "Tiempo de conexión agotado; probando el siguiente servidor.",
-        );
-      } else {
-        lastError =
-          error instanceof Error ? error : new Error("Error de conexión.");
+      const normalized = normalizeNetworkError(error, index);
+      failures.push(`${backendRole(index)}: ${normalized.message}`);
+
+      if (isPrimary && (error?.name === "AbortError" || error instanceof TypeError)) {
+        primaryCooldownUntil = Date.now() + 30000;
       }
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
-  throw lastError;
+  const detail = failures.length
+    ? failures.join(" ")
+    : "No hubo servidores configurados.";
+
+  throw new Error(`NEXO no pudo conectarse. ${detail} Revisa tu conexión y vuelve a enviar el mensaje.`);
 }
 
 async function checkHealth() {
