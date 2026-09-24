@@ -36,6 +36,8 @@ brain: Brain | None = None
 cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
 startup_probe_task: asyncio.Task[None] | None = None
+ai_ready_probe_lock: asyncio.Lock | None = None
+ai_ready_cache: tuple[float, dict[str, Any]] | None = None
 logger = logging.getLogger("c33")
 
 class ChatRequest(BaseModel):
@@ -113,6 +115,41 @@ async def _peer_probe() -> str:
     except httpx.HTTPError:
         return "OFFLINE"
 
+async def _remote_ai_probe(*, force: bool = False) -> dict[str, Any]:
+    global ai_ready_probe_lock, ai_ready_cache
+    if cascade is None:
+        raise GenerationFailure("runtime_not_initialized", http_status=503, attempts=[])
+    now = time.monotonic()
+    if not force and ai_ready_cache and ai_ready_cache[0] > now:
+        return dict(ai_ready_cache[1])
+    if ai_ready_probe_lock is None:
+        ai_ready_probe_lock = asyncio.Lock()
+    async with ai_ready_probe_lock:
+        now = time.monotonic()
+        if not force and ai_ready_cache and ai_ready_cache[0] > now:
+            return dict(ai_ready_cache[1])
+        result = await cascade.complete(
+            [
+                {"role": "system", "content": "Respond with a short health-check acknowledgement."},
+                {"role": "user", "content": "C33_AI_READY_PROBE"},
+            ],
+            DeadlineBudget(6_000),
+            probe=True,
+        )
+        if not result.text.strip():
+            raise GenerationFailure("empty_remote_response", http_status=502, attempts=[])
+        payload = {
+            "status": "ai_ready",
+            "service": "C-33",
+            "provider_used": result.meta.provider_used,
+            "model": result.meta.model,
+            "latency_ms": result.meta.latency_ms,
+            "failover_triggered": result.meta.failover_triggered,
+            "deployment_sha": _deployment_sha(),
+        }
+        ai_ready_cache = (time.monotonic() + 8.0, payload)
+        return dict(payload)
+
 async def _startup_ai_probe() -> None:
     if cascade is None:
         return
@@ -125,6 +162,17 @@ async def _startup_ai_probe() -> None:
             DeadlineBudget(6_000),
             probe=True,
         )
+        ai_ready_cache_set = {
+            "status": "ai_ready",
+            "service": "C-33",
+            "provider_used": result.meta.provider_used,
+            "model": result.meta.model,
+            "latency_ms": result.meta.latency_ms,
+            "failover_triggered": result.meta.failover_triggered,
+            "deployment_sha": _deployment_sha(),
+        }
+        global ai_ready_cache
+        ai_ready_cache = (time.monotonic() + 8.0, ai_ready_cache_set)
         logger.info(
             "C33_STARTUP_AI_PROBE success provider=%s model=%s latency_ms=%s",
             result.meta.provider_used,
@@ -193,6 +241,8 @@ async def lifespan(_: FastAPI):
         brain = None
         cascade = None
         startup_probe_task = None
+        ai_ready_probe_lock = None
+        ai_ready_cache = None
 
 app = FastAPI(title="C-33 / NEXO API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
@@ -271,33 +321,14 @@ async def ai_diagnostics() -> dict[str, Any]:
 @app.get("/v1/ai-ready")
 async def ai_ready() -> dict[str, Any]:
     """Real remote-AI probe. Local fallback never counts as AI_READY."""
-    _, _, providers = _require_runtime()
-    budget = DeadlineBudget(6_000)
+    _require_runtime()
     try:
-        result = await providers.complete(
-            [
-                {"role":"system","content":"Respond with a short health-check acknowledgement."},
-                {"role":"user","content":"C33_AI_READY_PROBE"},
-            ],
-            budget,
-            probe=True,
-        )
+        return await _remote_ai_probe()
     except GenerationFailure as exc:
-        raise HTTPException(status_code=exc.http_status, detail={"status":"not_ready","reason":exc.reason,"attempts":exc.attempts}) from exc
-    if not result.text.strip():
         raise HTTPException(
-            status_code=502,
-            detail={"status":"not_ready","reason":"empty_remote_response","provider":result.meta.provider_used},
-        )
-    return {
-        "status":"ai_ready",
-        "service":"C-33",
-        "provider_used":result.meta.provider_used,
-        "model":result.meta.model,
-        "latency_ms":result.meta.latency_ms,
-        "failover_triggered":result.meta.failover_triggered,
-        "deployment_sha":_deployment_sha(),
-    }
+            status_code=exc.http_status,
+            detail={"status":"not_ready","reason":exc.reason,"attempts":exc.attempts},
+        ) from exc
 
 async def _run_with_disconnect(request: Request, operation: asyncio.Future | asyncio.Task | Any) -> Any:
     task = asyncio.create_task(operation)
