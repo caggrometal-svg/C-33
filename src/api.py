@@ -633,6 +633,12 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources,"meta":final_meta},
                 request_id=request_id,
             )
+            logger.info(
+                "[NEXO_DEBUG_STREAM] done request_id=%s chars=%s provider=%s",
+                request_id,
+                len(final),
+                stream_meta.provider_used,
+            )
             yield "event: done\n"
             yield "data: " + json.dumps({"_meta":final_meta}, ensure_ascii=False) + "\n\n"
         except GenerationFailure as exc:
