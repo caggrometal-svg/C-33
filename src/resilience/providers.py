@@ -289,7 +289,7 @@ class ProviderCascade:
         api_key = os.getenv(spec.api_key_env, "").strip() if spec.api_key_env else ""
         if api_key: headers["Authorization"] = f"Bearer {api_key}"
         probe_model = os.getenv("AI_PROBE_MODEL", "").strip() if probe else ""
-        effective_model = probe_model or spec.model
+        effective_model = probe_model if probe_model else spec.model
         payload: dict[str, Any] = {"model":effective_model,"messages":messages,"stream":False}
         if probe: payload.update({"max_tokens":1,"temperature":0})
         if probe:
