@@ -31,7 +31,7 @@ services:
       - key: PEER_REPLICATION_SECRET
         sync: false
       - key: AI_PROVIDERS_JSON
-        value: '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"kilo-auto/free","failure_domain":"kilo.ai","timeout_ms":5500},{"id":"animica","base_url":"https://animica.dev/v1","model":"animica-chat-small","failure_domain":"animica.dev","timeout_ms":5750},{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":6000},{"id":"blockrun","base_url":"https://blockrun.ai/api/v1","model":"nvidia/gpt-oss-20b","failure_domain":"blockrun.ai","timeout_ms":4000}]'
+        value: '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"kilo-auto/free","failure_domain":"kilo.ai","timeout_ms":5500},{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3","failure_domain":"animica.dev","timeout_ms":5750},{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":6000},{"id":"blockrun","base_url":"https://blockrun.ai/api/v1","model":"nvidia/gpt-oss-20b","failure_domain":"blockrun.ai","timeout_ms":4000}]'
       - key: AI_PROVIDER_ORDER
         value: "kilo,animica,vireonix,blockrun"
       - key: PORT
