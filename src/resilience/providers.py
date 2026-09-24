@@ -381,11 +381,31 @@ class ProviderCascade:
                 if isinstance(exc, httpx.TimeoutException):
                     reason = "timeout"
                 elif isinstance(exc, httpx.ConnectError):
-                    detail = str(exc).lower()
+                    cause = exc.__cause__
+                    context = exc.__context__
+                    detail = " ".join(
+                        part for part in (
+                            str(exc),
+                            repr(exc),
+                            str(exc.args),
+                            str(cause) if cause else "",
+                            repr(cause) if cause else "",
+                            str(context) if context else "",
+                            repr(context) if context else "",
+                        ) if part
+                    ).lower()
                     reason = (
                         "tls_failure"
                         if "ssl" in detail or "tls" in detail or "certificate" in detail
-                        else ("dns_failure" if "dns" in detail or "name resolution" in detail or "name or service not known" in detail else "connection_reset")
+                        else (
+                            "dns_failure"
+                            if "dns" in detail
+                            or "name resolution" in detail
+                            or "name or service not known" in detail
+                            or "temporary failure in name resolution" in detail
+                            or "nodename nor servname" in detail
+                            else "connection_reset"
+                        )
                     )
                 else:
                     reason = "connection_error"
