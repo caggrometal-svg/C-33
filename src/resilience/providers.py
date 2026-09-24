@@ -358,6 +358,8 @@ class ProviderCascade:
                             if not line.startswith("data:"): continue
                             item=line[5:].strip()
                             if item=="[DONE]":
+                                if not got_token:
+                                    raise GenerationFailure("empty_stream",http_status=502,attempts=[])
                                 latency=int((time.monotonic()-started)*1000)
                                 await self.state.circuit_success(spec.provider_id,model=spec.model,latency_ms=latency)
                                 return
