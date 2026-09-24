@@ -198,7 +198,7 @@ async function probeBackend(index) {
 async function refreshConnection() {
   const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i)));
   const best = results.reduce((a, b) => stateRank(b.state) > stateRank(a.state) ? b : a, results[0] || { state: "OFFLINE", backend: 0 });
-  if (best?.state === "AI_READY") transition("AI_READY", "NEXO · Conectado · IA lista · " + backendRole(best.backend));
+  if (best?.state === "AI_READY") transition(best.backend === 0 ? "AI_READY" : "DEGRADED", "NEXO · " + (best.backend === 0 ? "Conectado · IA lista" : "Degradado · respaldo activo") + " · " + backendRole(best.backend));
   else if (best?.state === "DEGRADED") transition("DEGRADED", "NEXO · Degradado · respaldo activo");
   else if (best?.state === "READY") transition("READY", "NEXO · Backend listo · esperando IA");
   else if (best?.state === "ONLINE") transition("ONLINE", "NEXO · Internet disponible · backend no listo");
