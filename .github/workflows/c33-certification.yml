@@ -242,3 +242,24 @@ jobs:
         with:
           languages: python,javascript-typescript
       - uses: github/codeql-action/analyze@v3
+
+  final:
+    name: C-33 final matrix gate
+    needs: [backend, mobile, android, live, codeql]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every certification gate to pass
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          MOBILE_RESULT: ${{ needs.mobile.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          LIVE_RESULT: ${{ needs.live.result }}
+          CODEQL_RESULT: ${{ needs.codeql.result }}
+        run: |
+          test "$BACKEND_RESULT" = success
+          test "$MOBILE_RESULT" = success
+          test "$ANDROID_RESULT" = success
+          test "$LIVE_RESULT" = success
+          test "$CODEQL_RESULT" = success
+          echo "C-33 FINAL MATRIX GREEN"
