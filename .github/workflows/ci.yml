@@ -47,6 +47,7 @@ jobs:
       - name: Smoke test Railway C-33 chat
         env:
           C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           body='{"message":"Responde exactamente C33_CHAT_SMOKE_OK","user_id":"github-smoke","stream":false,"personality":"base","voice_tone":"neutral"}'
