@@ -12,6 +12,8 @@ services:
         value: https://vireonix.ai/v1
       - key: MODEL_NAME
         value: auto
+      - key: NETWORK_TIMEOUT_SECONDS
+        value: "45"
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEYS
