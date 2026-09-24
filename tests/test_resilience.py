@@ -80,6 +80,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_nested_dns_failure_fails_over(self):
         class NestedDnsTransport(FaultTransport):
             async def handle_async_request(self, request):
+                if request.url.host != "a.test":
+                    return await super().handle_async_request(request)
                 cause = OSError("Temporary failure in name resolution")
                 exc = httpx.ConnectError("transport failed", request=request)
                 exc.__cause__ = cause
