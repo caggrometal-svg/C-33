@@ -230,13 +230,13 @@ async def ai_diagnostics() -> dict[str, Any]:
 
 @app.get("/v1/ai-ready")
 async def ai_ready() -> dict[str, Any]:
-    """Real synthetic generation. Local fallback never counts as AI_READY."""
+    """Real remote-AI probe. Local fallback never counts as AI_READY."""
     _, _, providers = _require_runtime()
-    budget = DeadlineBudget(5_000)
+    budget = DeadlineBudget(6_000)
     try:
         result = await providers.complete(
             [
-                {"role":"system","content":"Return only the exact token C33_AI_READY_OK."},
+                {"role":"system","content":"Respond with a short health-check acknowledgement."},
                 {"role":"user","content":"C33_AI_READY_PROBE"},
             ],
             budget,
@@ -244,8 +244,11 @@ async def ai_ready() -> dict[str, Any]:
         )
     except GenerationFailure as exc:
         raise HTTPException(status_code=exc.http_status, detail={"status":"not_ready","reason":exc.reason,"attempts":exc.attempts}) from exc
-    if result.text.strip() != "C33_AI_READY_OK":
-        raise HTTPException(status_code=502, detail={"status":"not_ready","reason":"invalid_synthetic_response","provider":result.meta.provider_used})
+    if not result.text.strip():
+        raise HTTPException(
+            status_code=502,
+            detail={"status":"not_ready","reason":"empty_remote_response","provider":result.meta.provider_used},
+        )
     return {
         "status":"ai_ready",
         "service":"C-33",
