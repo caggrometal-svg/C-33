@@ -120,5 +120,5 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         model_base_url=model_base_url,
         model_api_key=model_api_key,
         environment=os.getenv("APP_ENV", "production").strip() or "production",
-        network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 30.0),
+        network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 45.0),
     )
