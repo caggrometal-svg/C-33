@@ -232,15 +232,60 @@ async def ai_diagnostics() -> dict[str, Any]:
 
 @app.get("/v1/ai-ready")
 async def ai_ready() -> dict[str, Any]:
-    """Read-only remote-AI readiness based on a recent successful remote generation."""
+    """Actively validate the remote AI path with a bounded, non-fallback probe."""
+    global remote_ai_ready
     _require_runtime()
     cached = remote_ai_ready
     if cached and cached[0] > time.monotonic():
         return dict(cached[1])
-    raise HTTPException(
-        status_code=503,
-        detail={"status":"not_ready","reason":"awaiting_recent_remote_generation"},
+
+    remote_ai_ready = None
+    probe_budget = DeadlineBudget(
+        min(config.backend_total_timeout_ms, 7000),
+        int((time.time() + min(config.backend_total_timeout_ms, 7000) / 1000) * 1000),
     )
+    try:
+        result = await asyncio.wait_for(
+            cascade.complete(
+                [{"role": "user", "content": "Reply exactly C33_AI_READY_OK."}],
+                probe_budget,
+                probe=True,
+            ),
+            timeout=min(7.0, config.backend_total_timeout_ms / 1000),
+        )
+    except GenerationFailure as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "not_ready",
+                "reason": exc.reason,
+                "attempts": exc.attempts,
+                "used_local_fallback": False,
+            },
+        ) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "status": "not_ready",
+                "reason": "readiness_probe_timeout",
+                "used_local_fallback": False,
+            },
+        ) from exc
+
+    remote_ai_ready = (
+        time.monotonic() + 30.0,
+        {
+            "status": "ai_ready",
+            "service": "C-33",
+            "provider_used": result.meta.provider_used,
+            "model": result.meta.model,
+            "latency_ms": result.meta.latency_ms,
+            "failover_triggered": result.meta.failover_triggered,
+            "deployment_sha": _deployment_sha(),
+        },
+    )
+    return dict(remote_ai_ready[1])
 
 async def _run_with_disconnect(request: Request, operation: asyncio.Future | asyncio.Task | Any) -> Any:
     task = asyncio.create_task(operation)
