@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: c33-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
