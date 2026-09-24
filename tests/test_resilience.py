@@ -126,7 +126,13 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             pieces.append(piece)
         self.assertEqual("".join(pieces), "C33_STREAM_OK")
         self.assertEqual(state.successes[-1], "b")
-        self.assertEqual(state.failures[0][1], first_behavior)
+        expected_reason = {
+            "dns": "dns_failure",
+            "tls": "tls_failure",
+            "connection": "connection_reset",
+            "stream_empty": "empty_stream",
+        }[first_behavior]
+        self.assertEqual(state.failures[0][1], expected_reason)
 
     async def test_stream_dns_failure_fails_over(self):
         await self._assert_stream_failover("dns")
