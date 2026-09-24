@@ -306,7 +306,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
         ) from exc
 
     remote_ai_ready = (
-        time.monotonic() + 30.0,
+        time.monotonic() + 15.0,
         {
             "status": "ai_ready",
             "service": "C-33",
