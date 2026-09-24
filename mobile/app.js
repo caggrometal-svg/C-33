@@ -1,16 +1,14 @@
-const BACKEND_URLS = Array.from(
-  new Set(
-    (
-      window.C33_CONFIG?.BACKEND_URLS || [
-        "https://c33-backend.onrender.com",
-        "https://iac33-backup-production.up.railway.app",
-      ]
-    ).map((url) => url.replace(/\/$/, "")),
-  ),
-);
-const API_PATH = window.C33_CONFIG?.CHAT_PATH || "/v1/chat";
-const HEALTH_PATH = window.C33_CONFIG?.HEALTH_PATH || "/health";
+const C = window.C33_CONFIG || {};
+const BACKEND_URLS = Array.from(new Set((C.BACKEND_URLS || []).map((url) => url.replace(/\/$/, ""))));
+const API_PATH = C.CHAT_PATH || "/v1/chat";
+const HEALTH_PATH = C.HEALTH_PATH || "/health";
+const READY_PATH = C.READY_PATH || "/ready";
+const AI_READY_PATH = C.AI_READY_PATH || "/v1/ai-ready";
+const CLIENT_TIMEOUT_MS = Number(C.CLIENT_TIMEOUT_MS || 28000);
+const PROBE_TIMEOUT_MS = Number(C.PROBE_TIMEOUT_MS || 2500);
+const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V2";
 const USER_ID_KEY = "C33_USER_ID";
+const CONVERSATION_KEY = "C33_CONVERSATION_ID";
 
 const form = document.getElementById("chat-form");
 const input = document.getElementById("message");
@@ -28,265 +26,254 @@ const colorVariety = document.getElementById("color-variety");
 const fontSize = document.getElementById("font-size");
 const personalityOptions = [...document.querySelectorAll("[data-personality]")];
 
-function createUserId() {
+function createId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  if (window.crypto?.getRandomValues) {
-    const bytes = new Uint8Array(16);
-    window.crypto.getRandomValues(bytes);
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0"));
-    return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10, 16).join("")}`;
-  }
-  return `c33-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return "c33-" + Date.now() + "-" + Math.random().toString(36).slice(2);
 }
 
-const userId = localStorage.getItem(USER_ID_KEY) || createUserId();
+const userId = localStorage.getItem(USER_ID_KEY) || createId();
 localStorage.setItem(USER_ID_KEY, userId);
+const conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
+localStorage.setItem(CONVERSATION_KEY, conversationId);
 
 const SETTINGS_KEY = "C33_NEXO_SETTINGS";
-const defaultSettings = {
-  voiceTone: "neutral",
-  colorVariety: false,
-  fontSize: "medium",
-  personality: "aggressive",
-};
-
+const defaultSettings = { voiceTone: "neutral", colorVariety: false, fontSize: "medium", personality: "aggressive" };
 function loadSettings() {
-  try {
-    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
-  } catch {
-    return { ...defaultSettings };
-  }
+  try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; }
+  catch { return { ...defaultSettings }; }
 }
-
 const nexoSettings = loadSettings();
-
-function saveSettings() {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(nexoSettings));
-}
-
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(nexoSettings)); }
 function applySettings() {
   document.body.classList.remove("font-small", "font-medium", "font-large", "font-xl");
-  document.body.classList.add(`font-${nexoSettings.fontSize}`);
+  document.body.classList.add("font-" + nexoSettings.fontSize);
   document.body.classList.toggle("color-variety", nexoSettings.colorVariety);
-
-  voiceTone.value = nexoSettings.voiceTone;
-  colorVariety.checked = nexoSettings.colorVariety;
-  fontSize.value = nexoSettings.fontSize;
-
+  if (voiceTone) voiceTone.value = nexoSettings.voiceTone;
+  if (colorVariety) colorVariety.checked = nexoSettings.colorVariety;
+  if (fontSize) fontSize.value = nexoSettings.fontSize;
   personalityOptions.forEach((button) => {
     const selected = button.dataset.personality === nexoSettings.personality;
     button.classList.toggle("selected", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
 }
-
 function setSettingsOpen(open) {
-  settings.classList.toggle("open", open);
-  settings.setAttribute("aria-hidden", String(!open));
-  if (open) settingsClose.focus();
-  else settingsOpen.focus();
+  settings?.classList.toggle("open", open);
+  settings?.setAttribute("aria-hidden", String(!open));
+  (open ? settingsClose : settingsOpen)?.focus();
 }
-
-if (settings && settingsOpen && settingsClose && voiceTone && colorVariety && fontSize) {
+if (settings && settingsOpen && settingsClose) {
   settingsOpen.addEventListener("click", () => setSettingsOpen(true));
   settingsClose.addEventListener("click", () => setSettingsOpen(false));
   settings.querySelector("[data-settings-close]")?.addEventListener("click", () => setSettingsOpen(false));
-
-  voiceTone.addEventListener("change", () => {
-    nexoSettings.voiceTone = voiceTone.value;
-    saveSettings();
-  });
-
-  colorVariety.addEventListener("change", () => {
-    nexoSettings.colorVariety = colorVariety.checked;
-    applySettings();
-    saveSettings();
-  });
-
-  fontSize.addEventListener("change", () => {
-    nexoSettings.fontSize = fontSize.value;
-    applySettings();
-    saveSettings();
-  });
-
-  personalityOptions.forEach((button) => {
-    button.addEventListener("click", () => {
-      nexoSettings.personality = button.dataset.personality;
-      applySettings();
-      saveSettings();
-    });
-  });
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && settings.classList.contains("open")) {
-      setSettingsOpen(false);
-    }
-  });
-
+  voiceTone?.addEventListener("change", () => { nexoSettings.voiceTone = voiceTone.value; saveSettings(); });
+  colorVariety?.addEventListener("change", () => { nexoSettings.colorVariety = colorVariety.checked; applySettings(); saveSettings(); });
+  fontSize?.addEventListener("change", () => { nexoSettings.fontSize = fontSize.value; applySettings(); saveSettings(); });
+  personalityOptions.forEach((button) => button.addEventListener("click", () => { nexoSettings.personality = button.dataset.personality; applySettings(); saveSettings(); }));
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && settings.classList.contains("open")) setSettingsOpen(false); });
   applySettings();
 }
 
 function addMessage(text, role) {
-  if (welcome) welcome.remove();
+  welcome?.remove();
   const node = document.createElement("div");
-  node.className = `message ${role}`;
+  node.className = "message " + role;
   node.textContent = text;
   chat.appendChild(node);
   node.scrollIntoView({ behavior: "smooth", block: "nearest" });
   return node;
 }
 
-function setStatus(text, mode = "") {
-  status.textContent = text;
-  statusDot.className = `status-dot ${mode}`;
+let connectionState = "OFFLINE";
+let lastBackendIndex = 0;
+let lastMeta = null;
+let circuits = loadCircuits();
+
+function loadCircuits() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CIRCUIT_KEY) || "{}");
+    return BACKEND_URLS.reduce((acc, _, index) => {
+      acc[index] = {
+        failures: Number(raw[index]?.failures || 0),
+        openUntil: Number(raw[index]?.openUntil || 0),
+        lastReason: raw[index]?.lastReason || "",
+      };
+      return acc;
+    }, {});
+  } catch {
+    return BACKEND_URLS.reduce((acc, _, index) => {
+      acc[index] = { failures: 0, openUntil: 0, lastReason: "" };
+      return acc;
+    }, {});
+  }
+}
+function saveCircuits() { localStorage.setItem(CIRCUIT_KEY, JSON.stringify(circuits)); }
+function backendRole(index) { return index === 0 ? "principal" : "respaldo"; }
+function circuitOpen(index) { return Number(circuits[index]?.openUntil || 0) > Date.now(); }
+function recordBackendSuccess(index) {
+  circuits[index] = { failures: 0, openUntil: 0, lastReason: "success" };
+  lastBackendIndex = index;
+  saveCircuits();
+}
+function recordBackendFailure(index, reason) {
+  const item = circuits[index] || { failures: 0, openUntil: 0, lastReason: "" };
+  item.failures += 1;
+  item.lastReason = reason;
+  if (item.failures >= Number(C.CIRCUIT_FAILURE_THRESHOLD || 2)) item.openUntil = Date.now() + Number(C.CIRCUIT_COOLDOWN_MS || 60000);
+  circuits[index] = item;
+  saveCircuits();
+}
+function transition(next, detail = "") {
+  connectionState = next;
+  status.textContent = detail || next;
+  statusDot.className = "status-dot " + next.toLowerCase();
+}
+function stateRank(value) { return { OFFLINE: 0, ONLINE: 1, READY: 2, AI_READY: 3, DEGRADED: 4 }[value] ?? 0; }
+
+function normalizeError(error) {
+  if (error?.name === "AbortError") return "timeout";
+  if (error instanceof TypeError) return "network_error";
+  return error instanceof Error ? error.message : "connection_error";
 }
 
-const PRIMARY_BACKEND_INDEX = 0;
-const BACKUP_BACKEND_INDEX = 1;
-let activeBackendIndex = PRIMARY_BACKEND_INDEX;
-let primaryCooldownUntil = 0;
-const PRIMARY_FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
-
-function backendRole(index) {
-  return index === PRIMARY_BACKEND_INDEX ? "principal" : "respaldo";
+async function fetchBounded(url, options = {}, timeoutMs = CLIENT_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(250, timeoutMs));
+  try { return await fetch(url, { ...options, signal: controller.signal, cache: "no-store" }); }
+  finally { clearTimeout(timer); }
 }
 
-function normalizeNetworkError(error, backend) {
-  if (error?.name === "AbortError") {
-    return new Error(`${backendRole(backend)} agotó su tiempo de conexión.`);
+async function probeBackend(index) {
+  const base = BACKEND_URLS[index];
+  if (!base) return { backend: index, state: "OFFLINE", reason: "not_configured" };
+  if (index === 0 && circuitOpen(index)) return { backend: index, state: "OFFLINE", reason: "primary_circuit_open" };
+  try {
+    const health = await fetchBounded(base + HEALTH_PATH, {}, PROBE_TIMEOUT_MS);
+    if (!health.ok) return { backend: index, state: "OFFLINE", reason: "health_http_" + health.status };
+    const ready = await fetchBounded(base + READY_PATH, {}, PROBE_TIMEOUT_MS);
+    if (!ready.ok && ready.status !== 503) return { backend: index, state: "ONLINE", reason: "ready_http_" + ready.status };
+    const ai = await fetchBounded(base + AI_READY_PATH, {}, Math.min(6000, PROBE_TIMEOUT_MS + 3500));
+    if (ai.ok) {
+      recordBackendSuccess(index);
+      return { backend: index, state: index === 1 ? "DEGRADED" : "AI_READY", reason: "synthetic_ok" };
+    }
+    recordBackendSuccess(index);
+    return { backend: index, state: ready.ok ? "READY" : "ONLINE", reason: "ai_ready_http_" + ai.status };
+  } catch (error) {
+    const reason = normalizeError(error);
+    recordBackendFailure(index, reason);
+    return { backend: index, state: "OFFLINE", reason };
   }
+}
 
-  if (error instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(error.message || "")) {
-    return new Error(`${backendRole(backend)} no está accesible desde este dispositivo.`);
-  }
+async function refreshConnection() {
+  const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i)));
+  const best = results.reduce((a, b) => stateRank(b.state) > stateRank(a.state) ? b : a, results[0] || { state: "OFFLINE", backend: 0 });
+  if (best?.state === "DEGRADED") transition("DEGRADED", "NEXO · IA respaldada");
+  else if (best?.state === "AI_READY") transition("AI_READY", "NEXO · AI_READY · " + backendRole(best.backend));
+  else if (best?.state === "READY") transition("READY", "NEXO · READY · " + backendRole(best.backend));
+  else if (best?.state === "ONLINE") transition("ONLINE", "NEXO · ONLINE");
+  else transition("OFFLINE", "NEXO · Sin conexión");
+  return results;
+}
 
-  return error instanceof Error ? error : new Error("Error de conexión.");
+function orderedBackends() {
+  const result = [];
+  if (!circuitOpen(0) || Date.now() >= Number(circuits[0]?.openUntil || 0)) result.push(0);
+  if (BACKEND_URLS.length > 1) result.push(1);
+  return [...new Set(result)];
 }
 
 async function requestWithFailover(path, options = {}) {
-  const isChat = path === API_PATH;
-  const primaryCoolingDown = Date.now() < primaryCooldownUntil;
-  const order = primaryCoolingDown
-    ? [BACKUP_BACKEND_INDEX, PRIMARY_BACKEND_INDEX]
-    : [PRIMARY_BACKEND_INDEX, BACKUP_BACKEND_INDEX];
-
+  const started = performance.now();
+  const deadlineAt = Date.now() + CLIENT_TIMEOUT_MS;
   const failures = [];
-
-  for (const index of order) {
-    const baseUrl = BACKEND_URLS[index];
-    if (!baseUrl) continue;
-
-    const isPrimary = index === PRIMARY_BACKEND_INDEX;
-    const attemptMs = isChat
-      ? 60000
-      : (isPrimary ? 2500 : 7000);
-
-    setStatus(
-      isChat
-        ? `NEXO conectando · ${backendRole(index)}…`
-        : `Comprobando ${backendRole(index)}…`,
-      "busy",
-    );
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), attemptMs);
-
+  for (const index of orderedBackends()) {
+    const remaining = Math.max(500, deadlineAt - Date.now());
+    if (remaining <= 500) break;
+    const base = BACKEND_URLS[index];
+    if (!base) continue;
+    transition("ONLINE", "NEXO · " + backendRole(index) + "…");
     try {
-      const response = await fetch(`${baseUrl}${path}`, {
-        ...options,
-        signal: controller.signal,
-        cache: "no-store",
-      });
-
+      const response = await fetchBounded(
+        base + path,
+        {
+          ...options,
+          headers: {
+            ...(options.headers || {}),
+            "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
+            "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
+          },
+        },
+        remaining,
+      );
+      let data = null;
+      try { data = await response.json(); } catch { data = null; }
       if (!response.ok) {
-        let detail = `HTTP ${response.status}`;
-        try {
-          const body = await response.json();
-          detail = body?.detail || body?.message || detail;
-        } catch {
-          // Conserva el estado HTTP cuando la respuesta no es JSON.
-        }
-        throw new Error(detail);
+        const reason = data?.detail?.reason || data?.detail || "HTTP " + response.status;
+        failures.push(backendRole(index) + ": " + reason);
+        recordBackendFailure(index, String(reason));
+        if ([400, 401, 403].includes(response.status)) throw new Error(String(reason));
+        continue;
       }
-
-      activeBackendIndex = index;
-      if (isPrimary) primaryCooldownUntil = 0;
-      return response;
+      if (data?._meta?.used_local_fallback) {
+        failures.push(backendRole(index) + ": " + (data._meta.final_reason || "remote_generation_failed"));
+        lastMeta = data._meta;
+        continue;
+      }
+      recordBackendSuccess(index);
+      lastMeta = data?._meta || null;
+      lastBackendIndex = index;
+      const degraded = index !== 0 || Boolean(lastMeta?.failover_triggered) || lastMeta?.system_status === "DEGRADED" || lastMeta?.memory_sync === "PENDING";
+      transition(degraded ? "DEGRADED" : "AI_READY", "NEXO · " + (degraded ? "DEGRADED" : "AI_READY") + " · " + backendRole(index));
+      lastMeta = { ...(lastMeta || {}), client_latency_ms: Math.round(performance.now() - started), backend_role: backendRole(index) };
+      return { response, data };
     } catch (error) {
-      const normalized = normalizeNetworkError(error, index);
-      failures.push(`${backendRole(index)}: ${normalized.message}`);
-
-      if (isPrimary && (error?.name === "AbortError" || error instanceof TypeError)) {
-        primaryCooldownUntil = Date.now() + PRIMARY_FAILURE_COOLDOWN_MS;
-      }
-    } finally {
-      clearTimeout(timeoutId);
+      const reason = normalizeError(error);
+      failures.push(backendRole(index) + ": " + reason);
+      recordBackendFailure(index, reason);
+      if (Date.now() >= deadlineAt) break;
     }
   }
-
-  const detail = failures.length
-    ? failures.join(" ")
-    : "No hubo servidores configurados.";
-
-  throw new Error(`NEXO no pudo conectarse. ${detail} Revisa tu conexión y vuelve a enviar el mensaje.`);
-}
-
-async function checkHealth() {
-  try {
-    await requestWithFailover(HEALTH_PATH);
-    const role = backendRole(activeBackendIndex);
-    setStatus(`Conectado · ${role}`, "online");
-  } catch {
-    setStatus("Sin conexión");
-  }
+  throw new Error("NEXO no pudo completar la operación. " + failures.join(" "));
 }
 
 function resizeInput() {
   input.style.height = "auto";
-  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
+  input.style.height = Math.min(input.scrollHeight, 150) + "px";
 }
-
 input.addEventListener("input", resizeInput);
-
-input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
-    event.preventDefault();
-    form.requestSubmit();
-  }
-});
+input.addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); } });
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
   if (!message || send.disabled) return;
-
   addMessage(message, "user");
   input.value = "";
   resizeInput();
   send.disabled = true;
-  setStatus("NEXO pensando…", "busy");
-
+  transition("ONLINE", "NEXO · procesando…");
   try {
-    const response = await requestWithFailover(API_PATH, {
+    const result = await requestWithFailover(API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
         user_id: userId,
+        conversation_id: conversationId,
+        request_id: createId(),
         stream: false,
         personality: nexoSettings.personality,
         voice_tone: nexoSettings.voiceTone,
       }),
     });
-
-    const data = await response.json();
-    addMessage(data.synthesis || "NEXO no devolvió una respuesta utilizable.", "assistant");
-    setStatus("Conectado", "online");
+    const data = result.data;
+    if (data.synthesis) addMessage(data.synthesis, "assistant");
+    else addMessage("NEXO no devolvió una respuesta utilizable.", "error");
   } catch (error) {
     addMessage(error.message || "Error de conexión.", "error");
-    setStatus("Error", "busy");
+    transition("DEGRADED", "NEXO · servicio no disponible");
   } finally {
     send.disabled = false;
     input.focus();
@@ -295,57 +282,22 @@ form.addEventListener("submit", async (event) => {
 
 let recognition = null;
 let recording = false;
-
 if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SpeechRecognition();
   recognition.lang = "es-CL";
   recognition.interimResults = true;
   recognition.continuous = false;
-
-  recognition.onstart = () => {
-    recording = true;
-    audio.classList.add("recording");
-    audio.setAttribute("aria-label", "Detener grabación");
-    audio.title = "Detener";
-    setStatus("Escuchando…", "busy");
-  };
-
-  recognition.onresult = (event) => {
-    let transcript = "";
-    for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      transcript += event.results[i][0].transcript;
-    }
-    input.value = transcript;
-    resizeInput();
-  };
-
-  recognition.onerror = () => {
-    setStatus("Conectado", "online");
-  };
-
-  recognition.onend = () => {
-    recording = false;
-    audio.classList.remove("recording");
-    audio.setAttribute("aria-label", "Hablar con NEXO");
-    audio.title = "Hablar";
-    if (status.textContent === "Escuchando…") setStatus("Conectado", "online");
-    input.focus();
-  };
-
-  audio.addEventListener("click", () => {
-    if (recording) {
-      recognition.stop();
-    } else {
-      recognition.start();
-    }
-  });
+  recognition.onstart = () => { recording = true; audio.classList.add("recording"); audio.setAttribute("aria-label", "Detener grabación"); audio.title = "Detener"; };
+  recognition.onresult = (event) => { let transcript = ""; for (let i = event.resultIndex; i < event.results.length; i += 1) transcript += event.results[i][0].transcript; input.value = transcript; resizeInput(); };
+  recognition.onerror = () => {};
+  recognition.onend = () => { recording = false; audio.classList.remove("recording"); audio.setAttribute("aria-label", "Hablar con NEXO"); audio.title = "Hablar"; input.focus(); };
+  audio.addEventListener("click", () => recording ? recognition.stop() : recognition.start());
 } else {
-  audio.addEventListener("click", () => {
-    addMessage("El reconocimiento de voz no está disponible en este dispositivo.", "error");
-  });
+  audio.addEventListener("click", () => addMessage("El reconocimiento de voz no está disponible en este dispositivo.", "error"));
 }
 
-checkHealth();
+refreshConnection();
+setInterval(() => { if (document.visibilityState === "visible") refreshConnection(); }, 15000);
 resizeInput();
 input.focus();

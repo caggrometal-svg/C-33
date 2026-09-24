@@ -1,71 +1,87 @@
-name: C-33 CI
+name: C-33 Certification
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
 
 jobs:
-  compile:
+  unit:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install backend dependencies
-        run: pip install -r requirements.txt
-
-      - name: Compile Python source
-        run: python -m compileall src
-
-      - name: Run backend regression tests
+      - run: pip install -r requirements.txt
+      - name: Python compile
+        run: python -m compileall src tests scripts
+      - name: Resilience and fault-injection tests
         env:
           PYTHONPATH: src
+          PORT: "8000"
+          SECRET_KEYS: '["unit-test-secret-1234567890"]'
         run: python -m unittest discover -s tests -p "test_*.py" -v
-
-      - name: Validate NEXO mobile JavaScript
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Mobile syntax and bundle
         working-directory: mobile
         run: |
-          node --check app.js
-          test -f config.js
           npm install
+          node --check app.js
+          node --check config.js
           npm run build
-          test -f dist/config.js
-          grep -q "https://c33-backend.onrender.com" dist/config.js
-          grep -q "https://iac33-backup-production.up.railway.app" dist/config.js
 
-      - name: Wait for exact Railway deployment
+  certification:
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      RENDER_URL: https://c33-backend.onrender.com
+      RAILWAY_URL: https://iac33-backup-production.up.railway.app
+      EXPECTED_SHA: \${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Exact live certification
         env:
-          C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          for attempt in {1..36}; do
-            status="$(curl -sS --max-time 10 "${C33_BACKUP_URL}/status" || true)"
-            echo "attempt ${attempt}: ${status}"
-            if echo "${status}" | python -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if d.get("deployment_sha")==sys.argv[1] and d.get("status") in {"ok","degraded"} else 1)' "${EXPECTED_SHA}"; then
-              echo "RAILWAY_DEPLOYMENT_SHA_OK"
-              break
-            fi
-            if [ "${attempt}" -eq 36 ]; then
-              echo "Railway did not expose the expected deployment SHA in time." >&2
-              exit 1
-            fi
-            sleep 5
-          done
+          PYTHONPATH: src
+        run: python scripts/certify_matrix.py --render-url "$RENDER_URL" --railway-url "$RAILWAY_URL" --expected-sha "$EXPECTED_SHA"
+      - name: Verify no provider-domain single point of failure
+        env:
+          PYTHONPATH: src
+        run: python scripts/certify_matrix.py --render-url "$RENDER_URL" --railway-url "$RAILWAY_URL" --expected-sha "$EXPECTED_SHA" --provider-diversity-only
 
-      - name: Smoke test Railway C-33 chat
-        env:
-          C33_BACKUP_URL: https://iac33-backup-production.up.railway.app
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          body='{"message":"Responde exactamente C33_CHAT_SMOKE_OK","user_id":"github-smoke","stream":false,"personality":"base","voice_tone":"neutral"}'
-          response="$(curl -fsS --max-time 60             -H "Content-Type: application/json"             -X POST "${C33_BACKUP_URL}/v1/chat"             --data "${body}")"
-          echo "${response}"
-          echo "${response}" | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("status")=="ok"; assert d.get("deployment_sha")==sys.argv[1]; assert isinstance(d.get("synthesis"),str) and d["synthesis"].strip(); print("C33_CHAT_SMOKE_OK")' "${EXPECTED_SHA}"
+  android-gate:
+    needs: certification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - working-directory: mobile
+        run: npm install && npm run build
+      - working-directory: mobile
+        run: npx cap add android && npx cap sync android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: android-actions/setup-android@v3
+      - run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+      - working-directory: mobile/android
+        run: ./gradlew assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c33-debug-apk-certified
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

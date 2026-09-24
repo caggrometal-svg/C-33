@@ -8,15 +8,31 @@ services:
     startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      - key: MODEL_BASE_URL
-        value: https://vireonix.ai/v1
-      - key: MODEL_NAME
-        value: auto
+      - key: C33_ROLE
+        value: primary
+      - key: PUBLIC_BASE_URL
+        value: https://c33-backend.onrender.com
+      - key: CLIENT_TIMEOUT_MS
+        value: "28000"
+      - key: BACKEND_TOTAL_TIMEOUT_MS
+        value: "26000"
       - key: NETWORK_TIMEOUT_SECONDS
-        value: "45"
+        value: "8"
+      - key: LOCAL_FALLBACK_ENABLED
+        value: "true"
+      - key: REQUIRE_PROVIDER_REDUNDANCY
+        value: "true"
+      - key: PEER_BACKEND_URL
+        value: https://iac33-backup-production.up.railway.app
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEYS
         sync: false
+      - key: PEER_REPLICATION_SECRET
+        sync: false
+      - key: AI_PROVIDERS_JSON
+        sync: false
+      - key: AI_PROVIDER_ORDER
+        sync: false
       - key: PORT
-        value: 10000
+        value: "10000"

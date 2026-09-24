@@ -1,9 +1,13 @@
-"""Production FastAPI service for C-33."""
+"""Production FastAPI service for C-33/NEXO with real readiness, failover and cancellation."""
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
+import json
 import os
-import sys
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -11,209 +15,452 @@ from typing import Any
 import asyncpg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 _SRC_DIR = str(Path(__file__).resolve().parent)
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
+if _SRC_DIR not in __import__("sys").path:
+    __import__("sys").path.insert(0, _SRC_DIR)
 
-from agent.brain import AgentResult, Brain, CompatibleChatModel
+from agent.brain import AgentResult, Brain
 from config import InfrastructureConfig, load_infrastructure_config
-from core.config import load_settings
-from memory.store import MemoryStore
+from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade
+from resilience.state import PostgresState
 from tools.web import WebTool
 
-
 config: InfrastructureConfig = load_infrastructure_config()
-DEPLOYMENT_SHA = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or "unknown"
-core_settings = load_settings()
 db_pool: asyncpg.Pool | None = None
-
-
-async def _database_check() -> bool:
-    """Validate that PostgreSQL is reachable from the running service."""
-    if db_pool is None:
-        return config.database_url is None
-    try:
-        async with db_pool.acquire() as connection:
-            await connection.fetchval("SELECT 1")
-        return True
-    except (OSError, asyncpg.PostgresError):
-        return False
-
-
-async def _initialize_database() -> asyncpg.Pool | None:
-    """Create a bounded PostgreSQL pool when DATABASE_URL is configured."""
-    if not config.database_url:
-        return None
-    return await asyncpg.create_pool(
-        dsn=config.database_url,
-        min_size=1,
-        max_size=5,
-        command_timeout=10,
-        timeout=10,
-    )
-
-
-def build_brain() -> Brain:
-    """Build the C-33 reasoning runtime."""
-    model_base_url = config.model_base_url or core_settings.model_base_url
-    model_api_key = config.model_api_key or core_settings.model_api_key
-
-    model = None
-    if model_base_url and config.model_name:
-        model = CompatibleChatModel(
-            model_base_url,
-            config.model_name,
-            model_api_key,
-            timeout=config.network_timeout_seconds,
-            temperature=core_settings.model_temperature,
-        )
-
-    memory = MemoryStore(
-        core_settings.memory_file,
-        short_term_limit=core_settings.short_term_limit,
-        long_term_limit=core_settings.long_term_limit,
-    )
-    web = WebTool(
-        config.network_timeout_seconds,
-        max_results=core_settings.search_max_results,
-    )
-    return Brain(
-        memory,
-        web,
-        max_steps=core_settings.agent_max_steps,
-        model=model,
-    )
-
-
-brain = build_brain()
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    """Open and close PostgreSQL when configured; keep edge mode stateless otherwise."""
-    global db_pool
-    db_pool = await _initialize_database()
-    try:
-        if config.database_url and not await _database_check():
-            raise RuntimeError("DATABASE_URL is configured but PostgreSQL is unreachable")
-        yield
-    finally:
-        if db_pool is not None:
-            await db_pool.close()
-            db_pool = None
-
-
-app = FastAPI(
-    title="C-33 API",
-    version="1.0.0",
-    description="Production API for C-33.",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+state: PostgresState | None = None
+brain: Brain | None = None
+cascade: ProviderCascade | None = None
+replication_task: asyncio.Task[None] | None = None
 
 class ChatRequest(BaseModel):
-    """Request model for the C-33 reasoning endpoint."""
-
     message: str = Field(min_length=1, max_length=20_000)
     user_id: str = Field(default="anonymous", min_length=1, max_length=256)
+    conversation_id: str = Field(default="default", min_length=1, max_length=256)
+    request_id: str = Field(default="", max_length=128)
     stream: bool = False
     personality: str = Field(default="base", max_length=32)
     voice_tone: str = Field(default="neutral", max_length=32)
 
+class ResponseMeta(BaseModel):
+    provider_used: str
+    model: str
+    failover_triggered: bool
+    latency_ms: int
+    final_reason: str
+    system_status: str
+    backend_role: str
+    backend_url: str
+    request_id: str
+    conversation_id: str
+    memory_sync: str
+    peer_status: str
+    provider_attempts: int
+    used_local_fallback: bool = False
 
 class ChatResponse(BaseModel):
-    """Observable response without exposing hidden reasoning."""
-
     status: str
     service: str
     user_id: str
+    conversation_id: str
+    request_id: str
     synthesis: str
     web_searches: list[str]
-    trace: list[dict[str, str | int]]
-    stream_requested: bool
+    _meta: ResponseMeta = Field(alias="_meta")
+    model_config = {"populate_by_name": True}
+
+class ReadyResponse(BaseModel):
+    status: str
+    service: str
     deployment_sha: str
+    database: str
+    peer_configured: bool
+    provider_count: int
 
+class ClientDisconnected(RuntimeError):
+    pass
 
-async def _chat(payload: ChatRequest) -> ChatResponse:
-    """Run Brain.process."""
+def _deployment_sha() -> str:
+    return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT_SHA") or "unknown"
+
+def _backend_url() -> str:
+    return os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/") or ("https://c33-backend.onrender.com" if config.role == "primary" else "https://iac33-backup-production.up.railway.app")
+
+def _require_runtime() -> tuple[PostgresState, Brain, ProviderCascade]:
+    if state is None or brain is None or cascade is None:
+        raise HTTPException(status_code=503, detail="backend_state_not_initialized")
+    return state, brain, cascade
+
+async def _database_ping() -> bool:
+    return bool(state and await state.database_ping())
+
+async def _peer_probe() -> str:
+    if not config.peer_url:
+        return "NOT_CONFIGURED"
+    import httpx
     try:
-        result: AgentResult = await brain.process(payload.message, personality_mode=payload.personality)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="C-33 processing failed") from exc
+        async with httpx.AsyncClient(timeout=httpx.Timeout(0.8, connect=0.4)) as client:
+            response = await client.get(config.peer_url + "/health", headers={"Cache-Control":"no-cache"})
+        return "ONLINE" if response.status_code == 200 else "OFFLINE"
+    except httpx.HTTPError:
+        return "OFFLINE"
 
-    return ChatResponse(
-        status="ok",
-        service="C-33",
-        user_id=payload.user_id,
-        synthesis=result.response,
-        web_searches=result.sources,
-        trace=[
-            {
-                "step": item.step,
-                "action": item.action,
-                "detail": item.detail,
-            }
-            for item in result.trace
-        ],
-        stream_requested=payload.stream,
-        deployment_sha=DEPLOYMENT_SHA,
-    )
+async def _replication_loop() -> None:
+    assert state is not None
+    while True:
+        try:
+            if config.peer_url and config.peer_replication_secret:
+                await state.replicate_batch(config.peer_url, config.peer_replication_secret, limit=25, timeout_ms=800)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+        await asyncio.sleep(2.0)
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    global db_pool, state, brain, cascade, replication_task
+    if config.database_url:
+        db_pool = await asyncpg.create_pool(
+            dsn=config.database_url,
+            min_size=1,
+            max_size=8,
+            command_timeout=5,
+            timeout=5,
+        )
+        state = PostgresState(db_pool)
+        await state.initialize()
+        cascade = ProviderCascade.from_environment(state)
+        brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
+        replication_task = asyncio.create_task(_replication_loop())
+    try:
+        yield
+    finally:
+        if replication_task:
+            replication_task.cancel()
+            try:
+                await replication_task
+            except asyncio.CancelledError:
+                pass
+        if db_pool:
+            await db_pool.close()
+        db_pool = None
+        state = None
+        brain = None
+        cascade = None
+
+app = FastAPI(title="C-33 / NEXO API", version="2.0.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 async def health() -> dict[str, Any]:
-    """Healthcheck with process and optional PostgreSQL state."""
-    database_ok = await _database_check()
-    database_state = "ok" if config.database_url and database_ok else (
-        "not_configured" if config.database_url is None else "unavailable"
-    )
-    return {
-        "status": "ok" if database_ok else "degraded",
-        "service": "C-33",
-        "database": database_state,
-        "deployment_sha": DEPLOYMENT_SHA,
-    }
+    """Pure liveness: process is alive; no DB/AI check and no false readiness."""
+    return {"status":"alive","service":"C-33","deployment_sha":_deployment_sha(),"role":config.role}
 
+@app.get("/ready", response_model=ReadyResponse)
+async def ready() -> ReadyResponse:
+    """Infrastructure readiness: local process + durable PostgreSQL + redundancy configuration."""
+    if state is None or cascade is None or not await _database_ping():
+        raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"database_unavailable"})
+    if config.environment == "production" and config.peer_url and not config.peer_replication_secret:
+        raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"peer_replication_secret_missing"})
+    if config.environment == "production":
+        try:
+            cascade.assert_ready_configuration()
+        except GenerationFailure as exc:
+            raise HTTPException(status_code=503, detail={"status":"not_ready","reason":exc.reason}) from exc
+    return ReadyResponse(
+        status="ready", service="C-33", deployment_sha=_deployment_sha(), database="ok",
+        peer_configured=bool(config.peer_url and config.peer_replication_secret),
+        provider_count=cascade.configured_provider_count,
+    )
+
+@app.get("/v1/time")
+async def api_time() -> dict[str, str]:
+    return {"utc":"%.3f" % time.time(),"deployment_sha":_deployment_sha()}
 
 @app.get("/status")
 async def status() -> dict[str, Any]:
-    """Runtime status with infrastructure and model state."""
-    database_ok = await _database_check()
-    database_state = "ok" if config.database_url and database_ok else (
-        "not_configured" if config.database_url is None else "unavailable"
-    )
+    db_ok = await _database_ping()
+    providers = []
+    if cascade and state:
+        providers = await state.all_circuit_snapshots([p.provider_id for p in cascade.providers])
+    peer = await _peer_probe()
+    system_status = "OFFLINE" if not db_ok else ("DEGRADED" if peer in {"OFFLINE", "NOT_CONFIGURED"} else "READY")
     return {
-        "status": "ok" if database_ok else "degraded",
-        "service": "C-33",
-        "database": database_state,
-        "ai": "configured" if brain.model is not None else "local-fallback",
-        "internet": "available",
-        "environment": config.environment,
-        "deployment_sha": DEPLOYMENT_SHA,
+        "status":"ok" if db_ok else "degraded",
+        "service":"C-33",
+        "deployment_sha":_deployment_sha(),
+        "backend_role":config.role,
+        "database":"ONLINE" if db_ok else "OFFLINE",
+        "internet":"UNKNOWN",
+        "ai":"CONFIGURED" if cascade and cascade.configured_provider_count else "NOT_CONFIGURED",
+        "provider_count": cascade.configured_provider_count if cascade else 0,
+        "provider_failure_domains": cascade.failure_domains if cascade else [],
+        "providers":providers,
+        "peer":peer,
+        "system_status":system_status,
+        "replication_pending":await state.replication_pending_count() if state else None,
     }
 
+@app.get("/v1/ai/diagnostics")
+async def ai_diagnostics() -> dict[str, Any]:
+    if state is None or cascade is None:
+        raise HTTPException(status_code=503, detail="runtime_not_initialized")
+    return {
+        "status":"ok",
+        "deployment_sha":_deployment_sha(),
+        "provider_count":cascade.configured_provider_count,
+        "provider_failure_domains":cascade.failure_domains,
+        "providers":await state.all_circuit_snapshots([p.provider_id for p in cascade.providers]),
+        "peer_status":await _peer_probe(),
+        "replication_pending":await state.replication_pending_count(),
+    }
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def api_chat(payload: ChatRequest, request: Request) -> ChatResponse:
-    """Compatibility chat endpoint."""
-    request.state.api_service = "C-33"
-    return await _chat(payload)
+@app.get("/v1/ai-ready")
+async def ai_ready() -> dict[str, Any]:
+    """Real synthetic generation. Local fallback never counts as AI_READY."""
+    _, _, providers = _require_runtime()
+    budget = DeadlineBudget(5_000)
+    try:
+        result = await providers.complete(
+            [
+                {"role":"system","content":"Return only the exact token C33_AI_READY_OK."},
+                {"role":"user","content":"C33_AI_READY_PROBE"},
+            ],
+            budget,
+            probe=True,
+        )
+    except GenerationFailure as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"status":"not_ready","reason":exc.reason,"attempts":exc.attempts}) from exc
+    if result.text.strip() != "C33_AI_READY_OK":
+        raise HTTPException(status_code=502, detail={"status":"not_ready","reason":"invalid_synthetic_response","provider":result.meta.provider_used})
+    return {
+        "status":"ai_ready",
+        "service":"C-33",
+        "provider_used":result.meta.provider_used,
+        "model":result.meta.model,
+        "latency_ms":result.meta.latency_ms,
+        "failover_triggered":result.meta.failover_triggered,
+        "deployment_sha":_deployment_sha(),
+    }
 
+async def _run_with_disconnect(request: Request, operation: asyncio.Future | asyncio.Task | Any) -> Any:
+    task = asyncio.create_task(operation)
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                raise ClientDisconnected("client_disconnected")
+            await asyncio.sleep(0.08)
+        return await task
+    finally:
+        if not task.done():
+            task.cancel()
+
+async def _commit_turn(st: PostgresState, payload: ChatRequest, synthesis: str, meta: dict[str, Any]) -> str:
+    await st.append_message(
+        conversation_id=payload.conversation_id,
+        user_id=payload.user_id,
+        role="assistant",
+        content=synthesis,
+        metadata={"provider_used":meta.get("provider_used"),"model":meta.get("model"),"meta":meta},
+        request_id=payload.request_id,
+    )
+    if config.peer_url and config.peer_replication_secret:
+        try:
+            await asyncio.wait_for(
+                st.replicate_batch(config.peer_url, config.peer_replication_secret, limit=10, timeout_ms=650),
+                timeout=min(0.75, max(0.05, (meta.get("remaining_ms", 750) or 750) / 1000)),
+            )
+        except Exception:
+            pass
+    return "SYNCED" if await st.replication_pending_count() == 0 else "PENDING"
+
+async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    st, b, providers = _require_runtime()
+    request_id = payload.request_id.strip() or os.urandom(12).hex()
+    effective_payload = payload.model_copy(update={"request_id":request_id})
+    existing = await st.existing_assistant_for_request(effective_payload.conversation_id, request_id)
+    if existing:
+        stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
+        stored_meta.setdefault("request_id", request_id)
+        stored_meta.setdefault("conversation_id", effective_payload.conversation_id)
+        return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=[],_meta=stored_meta)
+
+    await st.append_message(
+        conversation_id=effective_payload.conversation_id,
+        user_id=effective_payload.user_id,
+        role="user",
+        content=effective_payload.message,
+        metadata={"voice_tone":effective_payload.voice_tone,"personality":effective_payload.personality},
+        request_id=request_id,
+    )
+    # Outbox makes the user's turn durable before generation; the backup can also idempotently accept the same request.
+    client_deadline = request.headers.get("X-C33-Deadline-Epoch-Ms")
+    try:
+        deadline_epoch = int(client_deadline) if client_deadline else None
+    except ValueError:
+        deadline_epoch = None
+    budget = DeadlineBudget(config.backend_total_timeout_ms, deadline_epoch)
+
+    async def work() -> tuple[AgentResult | None, str | None, GenerationFailure | None]:
+        try:
+            result = await b.process(
+                effective_payload.message,
+                user_id=effective_payload.user_id,
+                conversation_id=effective_payload.conversation_id,
+                personality_mode=effective_payload.personality,
+                budget=budget,
+            )
+            return result, None, None
+        except GenerationFailure as exc:
+            return None, None, exc
+
+    result, _, generation_failure = await _run_with_disconnect(request, work())
+    if generation_failure:
+        if config.local_fallback_enabled:
+            synthesis = b.local_fallback(effective_payload.message, generation_failure.reason)
+            meta = {
+                "provider_used":"local",
+                "model":"local-fallback",
+                "failover_triggered":True,
+                "latency_ms":config.backend_total_timeout_ms - budget.remaining_ms,
+                "final_reason":generation_failure.reason,
+                "system_status":"DEGRADED",
+                "backend_role":config.role,
+                "backend_url":_backend_url(),
+                "request_id":request_id,
+                "conversation_id":effective_payload.conversation_id,
+                "memory_sync":"PENDING",
+                "peer_status":await _peer_probe(),
+                "provider_attempts":len(generation_failure.attempts),
+                "used_local_fallback":True,
+            }
+            sync = await _commit_turn(st, effective_payload, synthesis, {**meta,"remaining_ms":budget.remaining_ms})
+            meta["memory_sync"] = sync
+            return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=synthesis,web_searches=[],_meta=meta)
+        raise HTTPException(status_code=generation_failure.http_status, detail={"reason":generation_failure.reason,"attempts":generation_failure.attempts})
+
+    assert result is not None
+    meta = {
+        **result.model_meta,
+        "backend_role":config.role,
+        "backend_url":_backend_url(),
+        "request_id":request_id,
+        "conversation_id":effective_payload.conversation_id,
+        "memory_sync":"PENDING",
+        "peer_status":await _peer_probe(),
+        "provider_attempts":int(result.model_meta.get("attempts",1)),
+        "used_local_fallback":False,
+    }
+    sync = await _commit_turn(st, effective_payload, result.response, {**meta,"remaining_ms":budget.remaining_ms})
+    meta["memory_sync"] = sync
+    return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=result.response,web_searches=result.sources,_meta=meta)
 
 @app.post("/v1/chat", response_model=ChatResponse)
-async def v1_chat(payload: ChatRequest, request: Request) -> ChatResponse:
-    """Versioned chat endpoint."""
-    request.state.api_service = "C-33"
-    return await _chat(payload)
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    try:
+        return await asyncio.wait_for(_handle_chat(payload, request), timeout=config.backend_total_timeout_ms / 1000)
+    except ClientDisconnected as exc:
+        # Proxies may emit HTTP 499; when the socket is still writable this is explicit in our API contract.
+        raise HTTPException(status_code=499, detail={"reason":str(exc)}) from exc
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail={"reason":"backend_deadline_exceeded"}) from exc
+
+@app.post("/v1/ai/stream")
+async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
+    st, b, providers = _require_runtime()
+    request_id = payload.request_id.strip() or os.urandom(12).hex()
+    await st.append_message(
+        conversation_id=payload.conversation_id,
+        user_id=payload.user_id,
+        role="user",
+        content=payload.message,
+        metadata={"personality":payload.personality,"voice_tone":payload.voice_tone},
+        request_id=request_id,
+    )
+    client_deadline = request.headers.get("X-C33-Deadline-Epoch-Ms")
+    try: deadline_epoch = int(client_deadline) if client_deadline else None
+    except ValueError: deadline_epoch = None
+    budget = DeadlineBudget(config.backend_total_timeout_ms, deadline_epoch)
+
+    messages, sources, _ = await b.prepare_messages(
+        payload.message,
+        user_id=payload.user_id,
+        conversation_id=payload.conversation_id,
+        personality_mode=payload.personality,
+        budget=budget,
+    )
+
+    async def events():
+        pieces: list[str] = []
+        try:
+            async for piece, meta in providers.stream(messages, budget):
+                if await request.is_disconnected():
+                    return
+                pieces.append(piece)
+                yield "event: token\\n"
+                yield "data: " + json.dumps({"text":piece}, ensure_ascii=False) + "\\n\\n"
+            final = "".join(pieces).strip()
+            if final:
+                await st.append_message(
+                    conversation_id=payload.conversation_id,
+                    user_id=payload.user_id,
+                    role="assistant",
+                    content=final,
+                    metadata={"provider_used":meta.provider_used,"model":meta.model,"stream":True,"sources":sources},
+                    request_id=request_id,
+                )
+            yield "event: done\\n"
+            yield "data: " + json.dumps({"_meta":{
+                "provider_used":meta.provider_used if final else "unknown",
+                "model":meta.model if final else "unknown",
+                "failover_triggered":meta.failover_triggered if final else False,
+                "latency_ms":meta.latency_ms if final else config.backend_total_timeout_ms,
+                "final_reason":"stream_complete" if final else "empty_stream",
+                "system_status":meta.system_status if final else "DEGRADED",
+                "backend_role":config.role,
+                "request_id":request_id,
+                "conversation_id":payload.conversation_id,
+            }}, ensure_ascii=False) + "\\n\\n"
+        except (GenerationFailure, asyncio.CancelledError):
+            return
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control":"no-cache","Connection":"keep-alive","X-Accel-Buffering":"no"},
+    )
+
+@app.post("/internal/replicate")
+async def replicate(request: Request) -> JSONResponse:
+    if not config.peer_replication_secret:
+        raise HTTPException(status_code=404, detail="replication_disabled")
+    raw = await request.body()
+    supplied = request.headers.get("X-C33-Replication-Signature", "")
+    expected = hmac.new(config.peer_replication_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+    if not supplied or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail="invalid_replication_signature")
+    try:
+        body = json.loads(raw.decode("utf-8"))
+        messages = body["messages"]
+        if not isinstance(messages, list): raise ValueError
+    except (ValueError, KeyError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid_replication_payload") from exc
+    st, _, _ = _require_runtime()
+    imported = await st.import_replication_batch(messages)
+    return JSONResponse({"status":"ok","imported":imported})
