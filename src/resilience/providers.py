@@ -72,8 +72,11 @@ class ProviderCascade:
     def __init__(self, state: PostgresState, specs: list[ProviderSpec], order: list[str], transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.state = state
         by_id = {spec.provider_id: spec for spec in specs}
-        self.providers = [by_id[name] for name in order if name in by_id]
-        self.providers += [spec for spec in specs if spec.provider_id not in order]
+        if order:
+            # Explicit order is both priority and allowlist.
+            self.providers = [by_id[name] for name in order if name in by_id]
+        else:
+            self.providers = list(specs)
         self.require_redundancy = os.getenv("REQUIRE_PROVIDER_REDUNDANCY", "true").strip().lower() == "true"
         self.transport = transport
 
@@ -96,7 +99,10 @@ class ProviderCascade:
                 parsed = urlparse(base)
                 if parsed.scheme not in {"http", "https"} or not parsed.netloc:
                     raise ValueError(f"Invalid provider URL for {pid}")
-                if pid == "kilo-m3-free":\n                    model = "kilo-auto/free"\n                    pid = "kilo"\n                specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
+                if pid == "kilo-m3-free":
+                    model = "kilo-auto/free"
+                    pid = "kilo"
+                specs.append(ProviderSpec(pid, base, model, str(item.get("api_key_env", "")).strip() or None, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
         else:
             configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
             configured_model = os.getenv("MODEL_NAME", "").strip()
@@ -147,7 +153,10 @@ class ProviderCascade:
                     4_000,
                 )
             )
-        disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}\n        if disabled:\n            specs = [spec for spec in specs if spec.provider_id not in disabled]\n        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
+        disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}
+        if disabled:
+            specs = [spec for spec in specs if spec.provider_id not in disabled]
+        order = [x.strip() for x in os.getenv("AI_PROVIDER_ORDER", "provider_a,provider_b").split(",") if x.strip()]
         return cls(state, specs, order)
 
     @property
@@ -204,39 +213,43 @@ class ProviderCascade:
         raise GenerationFailure(final_reason,http_status=502,attempts=attempts)
 
     async def _probe_parallel(self, messages: list[dict[str, str]], budget: DeadlineBudget) -> GenerationResult:
-        """Probe independent providers concurrently so readiness is not serialized behind one slow provider."""
+        """Probe providers in configured order, bounded by the readiness deadline."""
         attempts: list[dict[str, Any]] = []
-        candidates: list[tuple[int, ProviderSpec]] = []
         for index, spec in enumerate(self.providers):
             if budget.remaining_ms < 1000:
                 break
-            # Readiness is also the recovery probe: an OPEN circuit must be re-tested
-            # here so a recovered provider can close its circuit without waiting for a
-            # long cooldown from a previous incident.
-            candidates.append((index, spec))
-        if not candidates:
-            raise GenerationFailure("no_provider_available", http_status=503, attempts=attempts)
-
-        async def run(index: int, spec: ProviderSpec) -> tuple[int, ProviderSpec, GenerationResult | None, GenerationFailure | None, int]:
+            decision = await self.state.circuit_before_call(spec.provider_id)
+            if not decision.allowed:
+                attempts.append({
+                    "provider": spec.provider_id,
+                    "reason": "circuit_open",
+                    "cooldown_ms": decision.cooldown_ms,
+                })
+                continue
             started = time.monotonic()
-            timeout_ms = min(spec.timeout_ms, max(1000, budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)))
+            timeout_ms = budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)
+            if timeout_ms < 750:
+                break
             try:
                 text = await self._complete_one(spec, messages, timeout_ms, probe=True)
                 latency = int((time.monotonic() - started) * 1000)
-                await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=latency)
-                result = GenerationResult(
+                await self.state.circuit_success(
+                    spec.provider_id,
+                    model=spec.model,
+                    latency_ms=latency,
+                )
+                return GenerationResult(
                     text=text,
                     meta=ProviderMeta(
                         spec.provider_id,
                         spec.model,
                         index > 0,
-                        1,
+                        len(attempts) + 1,
                         latency,
                         "success_after_failover" if index > 0 else "success",
                         "AI_READY" if index == 0 else "DEGRADED",
                     ),
                 )
-                return index, spec, result, None, latency
             except GenerationFailure as exc:
                 latency = int((time.monotonic() - started) * 1000)
                 await self.state.circuit_failure(
@@ -247,39 +260,22 @@ class ProviderCascade:
                     latency_ms=latency,
                     cooldown_ms=self._cooldown_ms(exc),
                 )
-                return index, spec, None, exc, latency
-
-        tasks = [asyncio.create_task(run(index, spec)) for index, spec in candidates]
-        try:
-            pending = set(tasks)
-            while pending:
-                done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
-                for task in done:
-                    index, spec, result, failure, latency = await task
-                    if result is not None:
-                        for other in pending:
-                            other.cancel()
-                        if pending:
-                            await asyncio.gather(*pending, return_exceptions=True)
-                        return result
-                    assert failure is not None
-                    attempts.append({
-                        "provider": spec.provider_id,
-                        "status": failure.http_status,
-                        "reason": failure.reason,
-                        "latency_ms": latency,
-                        "retry_after_ms": failure.retry_after_ms,
-                    })
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
+                attempts.append({
+                    "provider": spec.provider_id,
+                    "status": exc.http_status,
+                    "reason": exc.reason,
+                    "latency_ms": latency,
+                    "retry_after_ms": exc.retry_after_ms,
+                })
 
         final_reason = self._final_reason(attempts)
         if final_reason == "rate_limited":
-            raise GenerationFailure(final_reason, http_status=429, attempts=attempts, retry_after_ms=self._max_retry_after(attempts))
+            raise GenerationFailure(
+                final_reason,
+                http_status=429,
+                attempts=attempts,
+                retry_after_ms=self._max_retry_after(attempts),
+            )
         if final_reason in {"timeout", "deadline_exhausted", "dns_failure", "tls_failure", "connection_reset"}:
             raise GenerationFailure(final_reason, http_status=504, attempts=attempts)
         raise GenerationFailure(final_reason, http_status=502, attempts=attempts)
