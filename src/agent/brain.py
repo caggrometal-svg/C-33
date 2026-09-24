@@ -113,6 +113,10 @@ class Brain:
         self.max_steps = max_steps
         self.model = model
 
+    async def process(self, prompt: str) -> AgentResult:
+        """Process a user message through the C-33 reasoning engine."""
+        return await self.run(prompt)
+
     async def run(self, prompt: str) -> AgentResult:
         """Execute a bounded ReAct loop and persist the final interaction."""
         prompt = prompt.strip()
