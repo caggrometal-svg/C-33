@@ -1,19 +1,18 @@
 # C-33
 
-C-33 es la base de una IA independiente diseñada alrededor de tres capacidades:
+Núcleo funcional de una IA independiente con tres capacidades coordinadas:
 
-1. **Pensamiento:** un ciclo de razonamiento y decisión desacoplado del proveedor de IA.
-2. **Internet:** una herramienta web aislada para búsquedas y acceso HTTP.
-3. **Memoria:** una interfaz de persistencia de contexto preparada para evolucionar a un backend duradero.
+- **ReAct:** ciclo acotado de planificación, uso de memoria, búsqueda web y síntesis.
+- **Internet:** búsqueda DuckDuckGo, descarga HTTP(S), extracción de texto limpio y resumen ligero.
+- **Memoria:** persistencia local JSON con recuperación de contexto reciente y relevante.
 
 ## Estructura
 
-```text
+\`\`\`text
 C-33/
 ├── src/
 │   ├── core/
-│   │   ├── config.py
-│   │   └── logging.py
+│   │   └── config.py
 │   ├── agent/
 │   │   └── brain.py
 │   ├── tools/
@@ -23,33 +22,45 @@ C-33/
 │   └── main.py
 ├── .env.example
 ├── .gitignore
-└── pyproject.toml
-```
+├── pyproject.toml
+└── requirements.txt
+\`\`\`
 
 ## Requisitos
 
-- Python 3.12 o 3.13
-- pip
+Python 3.12 o 3.13.
 
 ## Instalación
 
-```bash
+\`\`\`bash
 python3.13 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -r requirements.txt
 cp .env.example .env
-```
+\`\`\`
 
-## Ejecución
+## Activación de un modelo
 
-```bash
-uvicorn main:app --app-dir src --reload
-```
+C-33 no fija un proveedor propietario. Para habilitar planificación y síntesis con un endpoint compatible con Chat Completions, configura en \`.env\`:
 
-Comprobar:
+\`\`\`text
+MODEL_BASE_URL=https://tu-endpoint/v1
+MODEL_NAME=tu-modelo
+MODEL_API_KEY=tu-clave-opcional
+\`\`\`
 
-```bash
-curl http://127.0.0.1:8000/health
-```
+Sin estas variables, el núcleo sigue operativo en modo local: puede consultar memoria, acceder a la web y entregar el contexto recuperado de forma transparente.
 
-La fundación no contiene proveedores propietarios ni workflows de GitHub Actions. Las futuras integraciones se conectarán mediante interfaces aisladas.
+## Ejecución interactiva
+
+\`\`\`bash
+python src/main.py
+\`\`\`
+
+Comandos de sesión:
+
+- \`/clear\` limpia la memoria persistente.
+- \`/memory\` muestra cuántas interacciones están guardadas.
+- \`/exit\` termina la sesión.
+
+La interfaz muestra únicamente acciones observables del ciclo ReAct; no expone razonamiento interno o cadena de pensamiento privada.
