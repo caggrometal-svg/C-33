@@ -36,6 +36,37 @@ cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
 remote_ai_ready: tuple[float, dict[str, Any]] | None = None
 
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_GENERATION = 30
+_RATE_LIMIT_AI_READY = 12
+_rate_limit_lock = asyncio.Lock()
+_rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
+
+async def _enforce_rate_limit(request: Request, scope: str, limit: int) -> None:
+    client_host = request.client.host if request.client else "unknown"
+    key = (scope, client_host)
+    now = time.monotonic()
+    async with _rate_limit_lock:
+        hits = [stamp for stamp in _rate_limit_buckets.get(key, []) if now - stamp < _RATE_LIMIT_WINDOW_SECONDS]
+        if len(hits) >= limit:
+            retry_after = max(1, int(_RATE_LIMIT_WINDOW_SECONDS - (now - hits[0])) + 1)
+            _rate_limit_buckets[key] = hits
+            raise HTTPException(
+                status_code=429,
+                detail={"reason": "rate_limited", "scope": scope},
+                headers={"Retry-After": str(retry_after)},
+            )
+        hits.append(now)
+        _rate_limit_buckets[key] = hits
+        if len(_rate_limit_buckets) > 4096:
+            stale = [
+                bucket_key
+                for bucket_key, stamps in _rate_limit_buckets.items()
+                if not stamps or now - stamps[-1] >= _RATE_LIMIT_WINDOW_SECONDS
+            ]
+            for bucket_key in stale[:1024]:
+                _rate_limit_buckets.pop(bucket_key, None)
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     user_id: str = Field(default="anonymous", min_length=1, max_length=256)
@@ -231,8 +262,9 @@ async def ai_diagnostics() -> dict[str, Any]:
     }
 
 @app.get("/v1/ai-ready")
-async def ai_ready() -> dict[str, Any]:
+async def ai_ready(request: Request) -> dict[str, Any]:
     """Actively validate the remote AI path with a bounded, non-fallback probe."""
+    await _enforce_rate_limit(request, "ai-ready", _RATE_LIMIT_AI_READY)
     global remote_ai_ready
     _require_runtime()
     cached = remote_ai_ready
@@ -431,6 +463,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
 @app.post("/v1/chat", response_model=ChatResponse)
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
+    await _enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)
     try:
         return await asyncio.wait_for(_handle_chat(payload, request), timeout=config.backend_total_timeout_ms / 1000)
     except ClientDisconnected as exc:
@@ -441,8 +474,36 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 
 @app.post("/v1/ai/stream")
 async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
+    await _enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)
     st, b, providers = _require_runtime()
     request_id = payload.request_id.strip() or os.urandom(12).hex()
+
+    existing = await st.existing_assistant_for_request(payload.conversation_id, request_id)
+    if existing:
+        stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
+        stored_meta.setdefault("request_id", request_id)
+        stored_meta.setdefault("conversation_id", payload.conversation_id)
+        stored_meta.setdefault("used_local_fallback", existing.metadata.get("provider_used") == "local" if isinstance(existing.metadata, dict) else False)
+        stored_meta["replayed"] = True
+
+        async def replay_events():
+            if stored_meta.get("used_local_fallback"):
+                yield "event: fallback\n"
+            else:
+                yield "event: token\n"
+            yield "data: " + json.dumps(
+                ({"text": existing.content, "_meta": stored_meta} if stored_meta.get("used_local_fallback") else {"text": existing.content}),
+                ensure_ascii=False,
+            ) + "\n\n"
+            yield "event: done\n"
+            yield "data: " + json.dumps({"_meta": stored_meta}, ensure_ascii=False) + "\n\n"
+
+        return StreamingResponse(
+            replay_events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control":"no-cache","Connection":"keep-alive","X-Accel-Buffering":"no"},
+        )
+
     await st.append_message(
         conversation_id=payload.conversation_id,
         user_id=payload.user_id,
@@ -513,7 +574,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 user_id=payload.user_id,
                 role="assistant",
                 content=final,
-                metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources},
+                metadata={"provider_used":stream_meta.provider_used,"model":stream_meta.model,"stream":True,"sources":sources,"meta":final_meta},
                 request_id=request_id,
             )
             final_meta = {
