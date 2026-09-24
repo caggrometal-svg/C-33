@@ -284,20 +284,12 @@ class ProviderCascade:
         for index, spec in enumerate(self.providers):
             if budget.remaining_ms < 1000:
                 break
-            if not probe:
-                decision = await self.state.circuit_before_call(spec.provider_id)
-                if not decision.allowed:
-                    attempts.append({
-                        "provider": spec.provider_id,
-                        "reason": "circuit_open",
-                        "cooldown_ms": decision.cooldown_ms,
-                    })
-                    continue
-            else:
-                logger.info(
-                    "[NEXO_DEBUG_READY] probe_bypass_circuit provider=%s reason=live_readiness_probe",
-                    spec.provider_id,
-                )
+            # Readiness probes are deliberately live: do not let a stale persisted
+            # circuit-open state prevent verification of the actual remote provider.
+            logger.info(
+                "[NEXO_DEBUG_READY] probe_bypass_circuit provider=%s reason=live_readiness_probe",
+                spec.provider_id,
+            )
             started = time.monotonic()
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)
             if timeout_ms < 750:
