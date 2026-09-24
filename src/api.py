@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,6 +25,7 @@ from tools.web import WebTool
 
 
 config: InfrastructureConfig = load_infrastructure_config()
+DEPLOYMENT_SHA = os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or "unknown"
 core_settings = load_settings()
 db_pool: asyncpg.Pool | None = None
 
@@ -139,6 +141,7 @@ class ChatResponse(BaseModel):
     web_searches: list[str]
     trace: list[dict[str, str | int]]
     stream_requested: bool
+    deployment_sha: str
 
 
 async def _chat(payload: ChatRequest) -> ChatResponse:
@@ -165,6 +168,7 @@ async def _chat(payload: ChatRequest) -> ChatResponse:
             for item in result.trace
         ],
         stream_requested=payload.stream,
+        deployment_sha=DEPLOYMENT_SHA,
     )
 
 
@@ -179,6 +183,7 @@ async def health() -> dict[str, Any]:
         "status": "ok" if database_ok else "degraded",
         "service": "C-33",
         "database": database_state,
+        "deployment_sha": DEPLOYMENT_SHA,
     }
 
 
@@ -196,6 +201,7 @@ async def status() -> dict[str, Any]:
         "ai": "configured" if brain.model is not None else "local-fallback",
         "internet": "available",
         "environment": config.environment,
+        "deployment_sha": DEPLOYMENT_SHA,
     }
 
 
