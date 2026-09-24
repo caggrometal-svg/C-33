@@ -74,6 +74,11 @@ if (settings && settingsOpen && settingsClose) {
   applySettings();
 }
 
+function localFallbackMessage(message, failures) {
+  const detail = failures?.length ? " (" + failures.join(" | ") + ")" : "";
+  return "NEXO está operando en respaldo local. La IA remota no está disponible" + detail + ". Consulta recibida: " + message.slice(0, 200);
+}
+
 function addMessage(text, role) {
   welcome?.remove();
   const node = document.createElement("div");
@@ -240,6 +245,7 @@ async function streamChatWithFailover(options = {}) {
           "Cache-Control": "no-cache",
           "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
           "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
+          "X-C33-Allow-Local-Fallback": "false",
         },
         signal: controller.signal,
         cache: "no-store",
@@ -336,7 +342,9 @@ async function streamChatWithFailover(options = {}) {
   }
 
   transition("OFFLINE", "NEXO · backends no disponibles");
-  throw new Error("NEXO no pudo iniciar streaming. " + failures.join(" "));
+  const error = new Error("NEXO no pudo iniciar streaming. " + failures.join(" "));
+  error.code = "REMOTE_EXHAUSTED";
+  throw error;
 }
 
 async function requestWithFailover(path, options = {}) {
@@ -431,8 +439,13 @@ form.addEventListener("submit", async (event) => {
       }),
     });
   } catch (error) {
-    addMessage(error.message || "Error de conexión.", "error");
-    transition("DEGRADED", "NEXO · servicio no disponible");
+    if (error?.code === "REMOTE_EXHAUSTED") {
+      addMessage(localFallbackMessage(message, [error.message]), "assistant fallback");
+      transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
+    } else {
+      addMessage(error.message || "Error de conexión.", "error");
+      transition("DEGRADED", "NEXO · servicio no disponible");
+    }
   } finally {
     send.disabled = false;
     input.focus();
