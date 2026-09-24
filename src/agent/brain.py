@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from agent.nexo import NexoCore
 from core.config import DEFAULT_DEBATE_SYSTEM_PROMPT
 from memory.store import MemoryEntry, MemoryStore
 from tools.web import SearchResult, WebPage, WebTool
@@ -112,6 +113,7 @@ class Brain:
         self.web = web
         self.max_steps = max_steps
         self.model = model
+        self.nexo = NexoCore()
 
     async def process(self, prompt: str) -> AgentResult:
         """Process a user message through the C-33 reasoning engine."""
@@ -128,6 +130,7 @@ class Brain:
         trace: list[AgentTrace] = []
         sources: list[str] = []
         used_actions: set[str] = set()
+        context.insert(0, self.nexo.planning_guidance(prompt, context))
 
         for step in range(1, self.max_steps + 1):
             decision = await self._decide(prompt, context, used_actions)
@@ -163,7 +166,7 @@ class Brain:
                     prompt,
                     response,
                     summary=response[:240],
-                    tags=[trace[-1].action, "interaction"],
+                    tags=[trace[-1].action, "interaction", "nexo", "learned"],
                     debate_topic=self._debate_topic(prompt),
                     user_position=prompt[:500],
                     central_arguments=self._central_arguments(prompt, response),
@@ -198,7 +201,7 @@ class Brain:
                         {
                             "role": "system",
                             "content": (
-                                "You are the C-33 planner. Decide the next observable action only. "
+                                f"{NexoCore.system_prompt()} Decide the next observable action only. "
                                 "Return JSON with action and argument. Actions: memory, web_search, web_search_counter, "
                                 "fetch_url, web_search_counter, final. Never return hidden chain-of-thought or analysis. "
                                 "Use web_search for current or externally verifiable information; "
@@ -235,7 +238,7 @@ class Brain:
                         {
                             "role": "system",
                             "content": (
-                                "You are C-33. Answer the user's question directly using the supplied context. "
+                                f"{NexoCore.system_prompt()} Answer the user's question directly using the supplied context. "
                                 "Do not reveal hidden chain-of-thought. Distinguish retrieved facts from uncertainty. "
                                 "When web evidence exists, cite the relevant URLs in a compact Sources section. " + DEFAULT_DEBATE_SYSTEM_PROMPT
                             ),
