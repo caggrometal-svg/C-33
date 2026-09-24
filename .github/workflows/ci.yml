@@ -20,9 +20,19 @@ jobs:
       - name: Compile Python source
         run: python -m compileall src
 
+      - name: Run backend regression tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
       - name: Validate NEXO mobile JavaScript
         working-directory: mobile
-        run: node --check app.js
+        run: |
+          node --check app.js
+          test -f config.js
+          npm install
+          npm run build
+          test -f dist/config.js
+          grep -q "https://c33-backend.onrender.com" dist/config.js
+          grep -q "https://iac33-backup-production.up.railway.app" dist/config.js
 
       - name: Wait for exact Railway deployment
         env:
