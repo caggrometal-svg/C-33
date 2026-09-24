@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -34,6 +35,8 @@ state: PostgresState | None = None
 brain: Brain | None = None
 cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
+startup_probe_task: asyncio.Task[None] | None = None
+logger = logging.getLogger("c33")
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
@@ -110,6 +113,34 @@ async def _peer_probe() -> str:
     except httpx.HTTPError:
         return "OFFLINE"
 
+async def _startup_ai_probe() -> None:
+    if cascade is None:
+        return
+    try:
+        result = await cascade.complete(
+            [
+                {"role": "system", "content": "Respond with a short health-check acknowledgement."},
+                {"role": "user", "content": "C33_STARTUP_AI_PROBE"},
+            ],
+            DeadlineBudget(6_000),
+            probe=True,
+        )
+        logger.info(
+            "C33_STARTUP_AI_PROBE success provider=%s model=%s latency_ms=%s",
+            result.meta.provider_used,
+            result.meta.model,
+            result.meta.latency_ms,
+        )
+    except GenerationFailure as exc:
+        logger.warning(
+            "C33_STARTUP_AI_PROBE failure reason=%s status=%s attempts=%s",
+            exc.reason,
+            exc.http_status,
+            json.dumps(exc.attempts, ensure_ascii=False),
+        )
+    except Exception as exc:
+        logger.exception("C33_STARTUP_AI_PROBE unexpected error: %s", exc)
+
 async def _replication_loop() -> None:
     assert state is not None
     while True:
@@ -124,7 +155,7 @@ async def _replication_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global db_pool, state, brain, cascade, replication_task
+    global db_pool, state, brain, cascade, replication_task, startup_probe_task
     if config.database_url:
         db_pool = await asyncpg.create_pool(
             dsn=config.database_url,
@@ -138,9 +169,17 @@ async def lifespan(_: FastAPI):
         cascade = ProviderCascade.from_environment(state)
         brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
         replication_task = asyncio.create_task(_replication_loop())
+        startup_probe_task = asyncio.create_task(_startup_ai_probe())
     try:
         yield
     finally:
+        if startup_probe_task:
+            startup_probe_task.cancel()
+            try:
+                await startup_probe_task
+            except asyncio.CancelledError:
+                pass
+            startup_probe_task = None
         if replication_task:
             replication_task.cancel()
             try:
@@ -153,6 +192,7 @@ async def lifespan(_: FastAPI):
         state = None
         brain = None
         cascade = None
+        startup_probe_task = None
 
 app = FastAPI(title="C-33 / NEXO API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
