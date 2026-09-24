@@ -1,0 +1,16 @@
+.git
+.github
+mobile/node_modules
+mobile/android
+mobile/dist
+**/.gradle
+**/build
+__pycache__
+**/__pycache__
+*.pyc
+*.pyo
+*.log
+*.apk
+*.aab
+.pytest_cache
+.coverage
