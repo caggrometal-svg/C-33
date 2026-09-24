@@ -52,7 +52,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
     async def test_metadata_helper_handles_postgres_json_values(self):
         self.assertEqual(PostgresState._metadata_dict(None), {})
         self.assertEqual(PostgresState._metadata_dict({"topic": "Hola"}), {"topic": "Hola"})
-        self.assertEqual(StateStore._metadata_dict('{"topic":"Hola"}'), {"topic": "Hola"})
+        self.assertEqual(PostgresState._metadata_dict('{"topic":"Hola"}'), {"topic": "Hola"})
 
     async def test_deadline_is_bounded_by_client(self):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
