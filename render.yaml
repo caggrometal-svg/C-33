@@ -1,16 +1,17 @@
 services:
   - type: web
-    name: iac33-backend
+    name: c33-backend
     env: docker
     plan: free
     region: oregon
     buildCommand: docker build -t c33-backend .
     startCommand: uvicorn src.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
     envVars:
-      - key: OPENAI_API_KEY
-        sync: false
+      - key: MODEL_BASE_URL
+        value: https://vireonix.ai/v1
       - key: MODEL_NAME
-        value: gpt-4o
+        value: auto
       - key: DATABASE_URL
         sync: false
       - key: SECRET_KEYS
