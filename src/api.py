@@ -215,7 +215,7 @@ async def ready() -> ReadyResponse:
         try:
             cascade.assert_ready_configuration()
         except GenerationFailure as exc:
-        logger.warning("[NEXO_DEBUG_READY] probe_failed reason=%s http_status=%s attempts=%s", exc.reason, exc.http_status, exc.attempts)
+            logger.warning("[NEXO_DEBUG_READY] configuration_failed reason=%s http_status=%s attempts=%s", exc.reason, exc.http_status, exc.attempts)
             raise HTTPException(status_code=503, detail={"status":"not_ready","reason":exc.reason}) from exc
     return ReadyResponse(
         status="ready", service="C-33", deployment_sha=_deployment_sha(), database="ok",
@@ -491,6 +491,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     logger.info("[NEXO_DEBUG_STREAM] start request_id=%s conversation_id=%s fingerprint=%s", request_id, payload.conversation_id, fingerprint)
 
     existing = await st.existing_assistant_for_request(payload.conversation_id, request_id)
+    logger.info("[NEXO_DEBUG_STREAM] idempotency_check request_id=%s existing=%s", request_id, bool(existing))
     if existing:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
         stored_meta.setdefault("request_id", request_id)
@@ -655,6 +656,14 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
             yield "data: " + json.dumps({"text":fallback,"_meta":fallback_meta}, ensure_ascii=False) + "\n\n"
             yield "event: done\n"
             yield "data: " + json.dumps({"_meta":fallback_meta}, ensure_ascii=False) + "\n\n"
+        except Exception as exc:
+            logger.exception(
+                "[NEXO_DEBUG_STREAM] unhandled_stream_crash request_id=%s pieces=%s",
+                request_id,
+                len(pieces),
+            )
+            if not await request.is_disconnected():
+                yield "data: [NEXO_STREAM_CRASH]\n\n"
         except asyncio.CancelledError:
             raise
         finally:
