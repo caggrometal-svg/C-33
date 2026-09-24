@@ -3,9 +3,11 @@ name: C-33 Certification
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: c33-certification-main
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -35,16 +37,39 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: mobile/package.json
       - working-directory: mobile
         run: npm install --no-audit --no-fund
       - working-directory: mobile
         run: npm run build
 
+
+  android:
+    name: Android packaging/lint gate
+    needs: [mobile]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - working-directory: mobile
+        run: npm install --no-audit --no-fund
+      - working-directory: mobile
+        run: npm run build
+      - working-directory: mobile
+        run: npx cap add android
+      - working-directory: mobile
+        run: npx cap sync android
+      - working-directory: mobile/android
+        run: ./gradlew lint
+
   live:
     name: Railway live connectivity
-    needs: [backend, mobile]
+    needs: [backend, mobile, android]
     runs-on: ubuntu-latest
     env:
       C33_BASE_URL: https://iac33-backup-production.up.railway.app
