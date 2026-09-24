@@ -429,7 +429,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     assert result is not None
     global remote_ai_ready
     remote_ai_ready = (
-        time.monotonic() + 120.0,
+        time.monotonic() + 15.0,
         {
             "status": "ai_ready",
             "service": "C-33",
