@@ -65,7 +65,6 @@ class Brain:
                 "news", "noticia", "precio", "price", "fuente", "verifica",
                 "comprueba", "evidencia", "prueba", "2026",
                 "internet", "navega", "navegar", "navegación", "web",
-                "fecha actual", "año actual", "hora actual", "en tiempo real",
             }
         )
         if needs_web and budget.remaining_ms >= 4_000:
