@@ -34,8 +34,7 @@ state: PostgresState | None = None
 brain: Brain | None = None
 cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
-ai_ready_probe_lock: asyncio.Lock | None = None
-ai_ready_cache: tuple[float, dict[str, Any]] | None = None
+remote_ai_ready: tuple[float, dict[str, Any]] | None = None
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
@@ -112,41 +111,6 @@ async def _peer_probe() -> str:
     except httpx.HTTPError:
         return "OFFLINE"
 
-async def _remote_ai_probe(*, force: bool = False) -> dict[str, Any]:
-    global ai_ready_probe_lock, ai_ready_cache
-    if cascade is None:
-        raise GenerationFailure("runtime_not_initialized", http_status=503, attempts=[])
-    now = time.monotonic()
-    if not force and ai_ready_cache and ai_ready_cache[0] > now:
-        return dict(ai_ready_cache[1])
-    if ai_ready_probe_lock is None:
-        ai_ready_probe_lock = asyncio.Lock()
-    async with ai_ready_probe_lock:
-        now = time.monotonic()
-        if not force and ai_ready_cache and ai_ready_cache[0] > now:
-            return dict(ai_ready_cache[1])
-        result = await cascade.complete(
-            [
-                {"role": "system", "content": "Respond with a short health-check acknowledgement."},
-                {"role": "user", "content": "C33_AI_READY_PROBE"},
-            ],
-            DeadlineBudget(11_000),
-            probe=True,
-        )
-        if not result.text.strip():
-            raise GenerationFailure("empty_remote_response", http_status=502, attempts=[])
-        payload = {
-            "status": "ai_ready",
-            "service": "C-33",
-            "provider_used": result.meta.provider_used,
-            "model": result.meta.model,
-            "latency_ms": result.meta.latency_ms,
-            "failover_triggered": result.meta.failover_triggered,
-            "deployment_sha": _deployment_sha(),
-        }
-        ai_ready_cache = (time.monotonic() + 8.0, payload)
-        return dict(payload)
-
 async def _replication_loop() -> None:
     assert state is not None
     while True:
@@ -190,8 +154,7 @@ async def lifespan(_: FastAPI):
         state = None
         brain = None
         cascade = None
-        ai_ready_probe_lock = None
-        ai_ready_cache = None
+        remote_ai_ready = None
 
 app = FastAPI(title="C-33 / NEXO API", version="2.0.0", lifespan=lifespan)
 app.add_middleware(
@@ -269,15 +232,15 @@ async def ai_diagnostics() -> dict[str, Any]:
 
 @app.get("/v1/ai-ready")
 async def ai_ready() -> dict[str, Any]:
-    """Real remote-AI probe. Local fallback never counts as AI_READY."""
+    """Read-only remote-AI readiness based on a recent successful remote generation."""
     _require_runtime()
-    try:
-        return await _remote_ai_probe()
-    except GenerationFailure as exc:
-        raise HTTPException(
-            status_code=exc.http_status,
-            detail={"status":"not_ready","reason":exc.reason,"attempts":exc.attempts},
-        ) from exc
+    cached = remote_ai_ready
+    if cached and cached[0] > time.monotonic():
+        return dict(cached[1])
+    raise HTTPException(
+        status_code=503,
+        detail={"status":"not_ready","reason":"awaiting_recent_remote_generation"},
+    )
 
 async def _run_with_disconnect(request: Request, operation: asyncio.Future | asyncio.Task | Any) -> Any:
     task = asyncio.create_task(operation)
@@ -387,6 +350,19 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         raise HTTPException(status_code=generation_failure.http_status, detail={"reason":generation_failure.reason,"attempts":generation_failure.attempts})
 
     assert result is not None
+    global remote_ai_ready
+    remote_ai_ready = (
+        time.monotonic() + 120.0,
+        {
+            "status": "ai_ready",
+            "service": "C-33",
+            "provider_used": result.model_meta.get("provider_used"),
+            "model": result.model_meta.get("model"),
+            "latency_ms": result.model_meta.get("latency_ms", 0),
+            "failover_triggered": result.model_meta.get("failover_triggered", False),
+            "deployment_sha": _deployment_sha(),
+        },
+    )
     meta = {
         **result.model_meta,
         "backend_role":config.role,
@@ -469,6 +445,19 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
             final = "".join(pieces).strip()
             if not final or stream_meta is None:
                 raise GenerationFailure("empty_stream", http_status=502, attempts=[])
+            global remote_ai_ready
+            remote_ai_ready = (
+                time.monotonic() + 120.0,
+                {
+                    "status": "ai_ready",
+                    "service": "C-33",
+                    "provider_used": stream_meta.provider_used,
+                    "model": stream_meta.model,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
+                    "failover_triggered": stream_meta.failover_triggered,
+                    "deployment_sha": _deployment_sha(),
+                },
+            )
             await st.append_message(
                 conversation_id=payload.conversation_id,
                 user_id=payload.user_id,
