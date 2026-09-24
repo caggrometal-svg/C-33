@@ -159,7 +159,7 @@ async def _replication_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global db_pool, state, brain, cascade, replication_task
+    global db_pool, state, brain, cascade, replication_task, remote_ai_ready
     if config.database_url:
         db_pool = await asyncpg.create_pool(
             dsn=config.database_url,
