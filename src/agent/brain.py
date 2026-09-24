@@ -133,7 +133,7 @@ class Brain:
         context.insert(0, self.nexo.planning_guidance(prompt, context))
 
         for step in range(1, self.max_steps + 1):
-            decision = await self._decide(prompt, context, used_actions)
+            decision = await self._decide(prompt, context, used_actions, personality_mode=personality_mode)
             action = decision["action"]
             argument = decision.get("argument", "").strip()
             used_actions.add(action)
