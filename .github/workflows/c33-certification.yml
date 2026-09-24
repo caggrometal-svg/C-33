@@ -1,0 +1,179 @@
+name: C-33 Certification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  backend:
+    name: Backend unit/resilience
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m compileall -q src tests
+      - run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  mobile:
+    name: Mobile web build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: mobile/package.json
+      - working-directory: mobile
+        run: npm install --no-audit --no-fund
+      - working-directory: mobile
+        run: npm run build
+
+  live:
+    name: Railway live connectivity
+    needs: [backend, mobile]
+    runs-on: ubuntu-latest
+    env:
+      C33_BASE_URL: https://iac33-backup-production.up.railway.app
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx
+      - name: Live certification
+        run: |
+          python - <<'PY'
+          import json, os, time, uuid
+          import httpx
+
+          base = os.environ["C33_BASE_URL"].rstrip("/")
+          expected = os.environ["EXPECTED_SHA"]
+          deadline = time.time() + 180
+          health_data = None
+
+          while time.time() < deadline:
+              try:
+                  r = httpx.get(base + "/health", timeout=8, headers={"Cache-Control":"no-cache"})
+                  if r.status_code == 200:
+                      data = r.json()
+                      if data.get("deployment_sha") == expected:
+                          health_data = data
+                          break
+              except Exception:
+                  pass
+              time.sleep(5)
+
+          if not health_data:
+              raise SystemExit("Railway did not expose the expected certified SHA within 180s")
+
+          ready = httpx.get(base + "/ready", timeout=10)
+          if ready.status_code != 200:
+              raise SystemExit(f"/ready failed: {ready.status_code} {ready.text}")
+
+          ai = httpx.get(base + "/v1/ai-ready", timeout=12)
+          if ai.status_code != 200:
+              raise SystemExit(f"/v1/ai-ready failed: {ai.status_code} {ai.text}")
+
+          probe = ai.json()
+          if probe.get("status") != "ai_ready" or not probe.get("provider_used"):
+              raise SystemExit(f"Invalid AI readiness response: {json.dumps(probe)}")
+
+          payload = {
+              "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
+              "user_id": "github-certification",
+              "conversation_id": "cert-" + uuid.uuid4().hex,
+              "request_id": uuid.uuid4().hex,
+              "stream": False,
+          }
+          chat = httpx.post(
+              base + "/v1/chat",
+              json=payload,
+              headers={
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          )
+          if chat.status_code != 200:
+              raise SystemExit(f"remote chat failed: {chat.status_code} {chat.text}")
+          chat_data = chat.json()
+          meta = chat_data.get("_meta", {})
+          if meta.get("used_local_fallback"):
+              raise SystemExit("remote chat unexpectedly used local fallback")
+          if not str(chat_data.get("synthesis", "")).strip():
+              raise SystemExit("remote chat returned empty synthesis")
+
+          saw_token = False
+          saw_done = False
+          saw_fallback = False
+          with httpx.stream(
+              "POST",
+              base + "/v1/ai/stream",
+              json={
+                  "message": "Reply briefly with C33_SSE_OK.",
+                  "user_id": "github-certification",
+                  "conversation_id": "sse-" + uuid.uuid4().hex,
+                  "request_id": uuid.uuid4().hex,
+                  "stream": True,
+              },
+              headers={
+                  "Accept": "text/event-stream",
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          ) as stream:
+              if stream.status_code != 200:
+                  raise SystemExit(f"SSE failed: {stream.status_code} {stream.read().decode(errors='replace')}")
+              for line in stream.iter_lines():
+                  if line.startswith("event: token"):
+                      saw_token = True
+                  elif line.startswith("event: done"):
+                      saw_done = True
+                  elif line.startswith("event: fallback"):
+                      saw_fallback = True
+
+          if not saw_token or not saw_done:
+              raise SystemExit(f"SSE incomplete: token={saw_token} done={saw_done}")
+          if saw_fallback:
+              raise SystemExit("SSE used local fallback")
+
+          status = httpx.get(base + "/status", timeout=8)
+          if status.status_code != 200:
+              raise SystemExit(f"/status failed: {status.status_code} {status.text}")
+
+          print(json.dumps({
+              "sha": expected,
+              "health": health_data,
+              "ready": ready.json(),
+              "ai_ready": probe,
+              "chat_provider": meta.get("provider_used"),
+              "chat_reason": meta.get("final_reason"),
+              "sse": {"token": saw_token, "done": saw_done},
+          }, ensure_ascii=False, indent=2))
+          PY
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: python,javascript-typescript
+      - uses: github/codeql-action/analyze@v3
