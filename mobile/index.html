@@ -2,28 +2,60 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#151922">
-  <title>C-33</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#020403">
+  <title>C-33 · NEXO</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app" aria-label="C-33">
-    <header class="header">
-      <div>
-        <h1>C-33</h1>
-        <p>Motor de debate dialéctico</p>
+  <main class="app" aria-label="C-33 con NEXO">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <div>
+          <h1>NEXO</h1>
+          <p>C-33</p>
+        </div>
       </div>
-      <span id="status" class="status">Desconectado</span>
+      <div class="connection" aria-live="polite">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status">Desconectado</span>
+      </div>
     </header>
 
-    <section id="chat" class="chat" aria-live="polite"></section>
+    <section id="chat" class="chat" aria-live="polite" aria-label="Conversación">
+      <div id="welcome" class="welcome">
+        <div class="welcome-bubble" aria-hidden="true">
+          <span class="pulse"></span>
+        </div>
+        <h2>¿En qué trabajamos?</h2>
+        <p>NEXO está listo. Escribe un mensaje o usa el micrófono.</p>
+      </div>
+    </section>
 
-    <form id="chat-form" class="composer">
+    <form id="chat-form" class="composer" autocomplete="off">
       <label class="sr-only" for="message">Mensaje</label>
-      <textarea id="message" name="message" rows="2" maxlength="20000"
-        placeholder="Escribe tu mensaje..." required></textarea>
-      <button id="send" type="submit">Enviar</button>
+      <div class="composer-shell">
+        <textarea id="message" name="message" rows="1" maxlength="20000"
+          placeholder="Escribe a NEXO…" required></textarea>
+        <div class="composer-actions">
+          <button id="audio" class="icon-button audio-button" type="button" aria-label="Hablar con NEXO" title="Hablar">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 14.5a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5.5a3 3 0 0 0 3 3Z"/>
+              <path d="M18.5 11.5a6.5 6.5 0 0 1-13 0"/>
+              <path d="M12 18v3.5M8.5 21.5h7"/>
+            </svg>
+          </button>
+          <button id="send" class="send-button" type="submit" aria-label="Enviar mensaje" title="Enviar">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m5 12 14-7-4 14-3.5-5.5L5 12Z"/>
+              <path d="m11.5 13.5 3-3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
     </form>
   </main>
   <script src="config.js"></script>
