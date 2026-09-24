@@ -17,5 +17,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Compile source
+      - name: Compile Python source
         run: python -m compileall src
+
+      - name: Validate NEXO mobile JavaScript
+        working-directory: mobile
+        run: node --check app.js
