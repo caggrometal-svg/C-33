@@ -368,6 +368,11 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     }
     sync = await _commit_turn(st, effective_payload, result.response, {**meta,"remaining_ms":budget.remaining_ms})
     meta["memory_sync"] = sync
+    meta["system_status"] = (
+        "DEGRADED"
+        if meta.get("failover_triggered") or meta.get("peer_status") != "ONLINE" or sync != "SYNCED"
+        else "AI_READY"
+    )
     return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=result.response,web_searches=result.sources,_meta=meta)
 
 @app.post("/v1/chat", response_model=ChatResponse)

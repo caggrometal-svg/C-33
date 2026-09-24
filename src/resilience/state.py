@@ -437,22 +437,37 @@ class PostgresState:
         return ok_count, fail_count
 
     async def import_replication_batch(self, messages: list[dict[str, Any]]) -> int:
+        """Import replicated messages preserving their source conversation sequence."""
         imported = 0
-        for item in messages[:100]:
-            try:
-                await self.append_message(
-                    conversation_id=str(item["conversation_id"]),
-                    user_id=str(item["user_id"]),
-                    role=str(item["role"]),
-                    content=str(item["content"]),
-                    metadata=dict(item.get("metadata") or {}),
-                    request_id=item.get("request_id"),
-                    message_id=str(item["id"]),
-                    enqueue_replication=False,
-                )
-                imported += 1
-            except (KeyError, ValueError, asyncpg.PostgresError):
-                continue
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                for item in messages[:100]:
+                    try:
+                        mid = uuid.UUID(str(item["id"]))
+                        conversation_id = str(item["conversation_id"])
+                        user_id = str(item["user_id"])
+                        seq = int(item["seq"])
+                        role = str(item["role"])
+                        content = str(item["content"]).strip()
+                        metadata = json.dumps(dict(item.get("metadata") or {}), ensure_ascii=False)
+                        request_id = item.get("request_id")
+                        if not conversation_id or not user_id or not content or seq < 1:
+                            continue
+                        await conn.execute(
+                            "INSERT INTO c33_messages(id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at) "
+                            "VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::timestamptz) "
+                            "ON CONFLICT(id) DO NOTHING",
+                            mid, conversation_id, user_id, seq, role, content, metadata, request_id,
+                            item.get("created_at"),
+                        )
+                        await conn.execute(
+                            "INSERT INTO c33_conversation_heads(conversation_id,next_seq) VALUES($1,$2) "
+                            "ON CONFLICT(conversation_id) DO UPDATE SET next_seq=GREATEST(c33_conversation_heads.next_seq,EXCLUDED.next_seq)",
+                            conversation_id, seq + 1,
+                        )
+                        imported += 1
+                    except (KeyError, ValueError, TypeError, asyncpg.PostgresError):
+                        continue
         return imported
 
     async def replication_pending_count(self) -> int:
