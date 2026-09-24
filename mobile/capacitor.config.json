@@ -1,0 +1,6 @@
+{
+  "appId": "com.c33.mobile",
+  "appName": "C-33",
+  "webDir": ".",
+  "bundledWebRuntime": false
+}
