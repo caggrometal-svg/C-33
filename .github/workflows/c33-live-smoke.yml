@@ -1,0 +1,124 @@
+name: C-33 Live Smoke
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      BASE_URL: https://iac33-backup-production.up.railway.app
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx
+      - name: Verify Railway live
+        run: |
+          python - <<'PY'
+          import json, os, time, uuid
+          import httpx
+
+          base = os.environ["BASE_URL"].rstrip("/")
+          expected = os.environ["EXPECTED_SHA"]
+
+          health = None
+          for _ in range(36):
+              try:
+                  r = httpx.get(base + "/health", timeout=8)
+                  if r.status_code == 200:
+                      data = r.json()
+                      if data.get("deployment_sha") == expected:
+                          health = data
+                          break
+              except Exception:
+                  pass
+              time.sleep(5)
+          if health is None:
+              raise SystemExit(f"Railway SHA not live: expected={expected}")
+
+          ready = httpx.get(base + "/ready", timeout=10)
+          if ready.status_code != 200:
+              raise SystemExit(f"/ready {ready.status_code}: {ready.text}")
+
+          ai = httpx.get(base + "/v1/ai-ready", timeout=15)
+          if ai.status_code != 200:
+              raise SystemExit(f"/v1/ai-ready {ai.status_code}: {ai.text}")
+          ai_data = ai.json()
+          if ai_data.get("status") != "ai_ready":
+              raise SystemExit(f"AI not ready: {ai_data}")
+
+          cid = "smoke-" + uuid.uuid4().hex
+          payload = {
+              "message": "Reply exactly C33_LIVE_OK.",
+              "user_id": "c33-live-smoke",
+              "conversation_id": cid,
+              "request_id": uuid.uuid4().hex,
+              "stream": False,
+          }
+          headers = {
+              "X-C33-Allow-Local-Fallback": "false",
+              "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+          }
+          chat = httpx.post(base + "/v1/chat", json=payload, headers=headers, timeout=22)
+          if chat.status_code != 200:
+              raise SystemExit(f"/v1/chat {chat.status_code}: {chat.text}")
+          cd = chat.json()
+          cm = cd.get("_meta") or {}
+          if cm.get("used_local_fallback") or not str(cd.get("synthesis", "")).strip():
+              raise SystemExit(f"remote chat invalid: {cd}")
+
+          payload2 = {
+              **payload,
+              "message": "Using the same conversation, reply exactly C33_MEMORY_OK.",
+              "request_id": uuid.uuid4().hex,
+          }
+          chat2 = httpx.post(base + "/v1/chat", json=payload2, headers=headers, timeout=22)
+          if chat2.status_code != 200:
+              raise SystemExit(f"memory chat {chat2.status_code}: {chat2.text}")
+          c2 = chat2.json()
+          m2 = c2.get("_meta") or {}
+          if m2.get("used_local_fallback") or not str(c2.get("synthesis", "")).strip():
+              raise SystemExit(f"memory response invalid: {c2}")
+
+          sse_headers = {
+              **headers,
+              "Accept": "text/event-stream",
+          }
+          with httpx.stream("POST", base + "/v1/ai/stream", json={
+              "message": "Reply briefly C33_SSE_OK.",
+              "user_id": "c33-live-smoke",
+              "conversation_id": "sse-" + uuid.uuid4().hex,
+              "request_id": uuid.uuid4().hex,
+              "stream": True,
+          }, headers=sse_headers, timeout=22) as s:
+              if s.status_code != 200:
+                  raise SystemExit(f"SSE {s.status_code}: {s.read().decode(errors='replace')}")
+              token = done = fallback = False
+              for line in s.iter_lines():
+                  if line.startswith("event: token"):
+                      token = True
+                  elif line.startswith("event: done"):
+                      done = True
+                  elif line.startswith("event: fallback"):
+                      fallback = True
+              if not token or not done or fallback:
+                  raise SystemExit(f"SSE invalid token={token} done={done} fallback={fallback}")
+
+          print(json.dumps({
+              "sha": expected,
+              "health": health,
+              "ready": ready.json(),
+              "ai_ready": ai_data,
+              "chat_provider": cm.get("provider_used"),
+              "memory_provider": m2.get("provider_used"),
+              "sse": {"token": token, "done": done, "fallback": fallback},
+          }, ensure_ascii=False, indent=2))
+          PY
