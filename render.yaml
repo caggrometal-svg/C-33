@@ -13,9 +13,9 @@ services:
       - key: PUBLIC_BASE_URL
         value: https://c33-backend.onrender.com
       - key: CLIENT_TIMEOUT_MS
-        value: "15000"
+        value: "22000"
       - key: BACKEND_TOTAL_TIMEOUT_MS
-        value: "12000"
+        value: "18000"
       - key: NETWORK_TIMEOUT_SECONDS
         value: "8"
       - key: LOCAL_FALLBACK_ENABLED
