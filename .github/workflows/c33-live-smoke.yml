@@ -1,8 +1,7 @@
 name: C-33 Live Smoke
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: c33-live-smoke-main
