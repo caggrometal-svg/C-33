@@ -293,6 +293,7 @@ async def ai_ready(request: Request) -> dict[str, Any]:
             timeout=min(READINESS_PROBE_TIMEOUT_SECONDS, config.backend_total_timeout_ms / 1000),
         )
     except GenerationFailure as exc:
+        logger.warning("[NEXO_DEBUG_READY] probe_failed reason=%s http_status=%s attempts=%s", exc.reason, exc.http_status, exc.attempts)
         raise HTTPException(
             status_code=503,
             detail={
@@ -666,7 +667,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control":"no-cache","Connection":"keep-alive","X-Accel-Buffering":"no"},
+        headers={"Cache-Control":"no-cache, no-transform","Connection":"keep-alive","X-Accel-Buffering":"no"},
     )
 
 @app.post("/internal/replicate")
