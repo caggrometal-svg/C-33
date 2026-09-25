@@ -1,0 +1,38 @@
+name: C-33 container
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "src/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "Dockerfile"
+      - ".github/workflows/c33-container.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push C-33 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/caggrometal-svg/c33-backend:latest
+            ghcr.io/caggrometal-svg/c33-backend:${{ github.sha }}
