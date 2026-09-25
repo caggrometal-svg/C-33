@@ -233,6 +233,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
         ]
         cascade = ProviderCascade(state, specs, ["a","b"], transport=FaultTransport({"a.test":"timeout","b.test":"ok"}))
+        before_successes = list(state.successes)
+        before_failures = list(state.failures)
         result = await cascade.complete(
             [{"role":"user","content":"probe"}],
             DeadlineBudget(5000),
@@ -240,6 +242,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.text, "C33_OK")
         self.assertIn(result.meta.provider_used, {"a","b"})
+        self.assertEqual(state.successes, before_successes)
+        self.assertEqual(state.failures, before_failures)
 
     async def test_429_preserves_retry_after_on_terminal_failure(self):
         state = FakeState()
