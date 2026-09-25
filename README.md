@@ -34,9 +34,9 @@ La construcción reproducible se realiza mediante GitHub Actions. La APK no debe
 
 ## Configuración del modelo
 
-C-33 no fija un único proveedor propietario. Los proveedores se configuran mediante variables de entorno y `ProviderCascade` exige redundancia cuando el entorno productivo la requiere.
+C-33 usa una topología **FREE-only** para inferencia remota: Kilo Auto Free → Vireonix. Ambos tienen acceso sin pago requerido; el núcleo rechaza proveedores externos no aprobados y cualquier API key de inferencia.
 
-El núcleo puede operar con fallback local determinista cuando la generación remota no está disponible. Esto no se presenta como un LLM local hasta que exista uno realmente ejecutable.
+El núcleo puede operar con fallback local determinista cuando la generación remota no está disponible. Ese fallback no se presenta como LLM hasta que exista un runtime local real. La vía FREE no depende de créditos, saldo o facturación de proveedores.
 
 ## Infraestructura
 
