@@ -84,7 +84,7 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('unsupported_replication_version', self.api)
 
     def test_health_is_pure_liveness_contract(self):
-        health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready")', 1)[0]
+        health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready"', 1)[0]
         health_fn = health.split('async def health', 1)[1]
         self.assertIn('return {"status":"alive"', health_fn)
         self.assertNotIn("_database_ping()", health_fn)
