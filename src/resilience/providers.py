@@ -438,7 +438,7 @@ class ProviderCascade:
             logger.info("[NEXO_DEBUG_PROVIDER] probe_model provider=%s model=%s configured_probe_model=%s", spec.provider_id, effective_model, bool(probe_model))
         timeout = httpx.Timeout(timeout_ms/1000, connect=min(2.0,timeout_ms/1000), read=timeout_ms/1000, write=min(2.0,timeout_ms/1000), pool=min(1.0,timeout_ms/1000))
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, transport=self.transport) as client:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, transport=self.transport, trust_env=False) as client:
                 endpoint = (f"{spec.base_url}/openai" if (urlparse(spec.base_url).hostname or "").lower() == "text.pollinations.ai" else f"{spec.base_url}/chat/completions")
                 response = await client.post(endpoint,headers=headers,json=payload)
         except asyncio.CancelledError:
@@ -527,7 +527,7 @@ class ProviderCascade:
             payload={"model":spec.model,"messages":messages,"stream":True}
             try:
                 timeout=httpx.Timeout(timeout_ms/1000,connect=min(2.0,timeout_ms/1000),read=timeout_ms/1000,write=2.0,pool=1.0)
-                async with httpx.AsyncClient(timeout=timeout,follow_redirects=True,transport=self.transport) as client:
+                async with httpx.AsyncClient(timeout=timeout,follow_redirects=False,transport=self.transport,trust_env=False) as client:
                     endpoint = (f"{spec.base_url}/openai" if (urlparse(spec.base_url).hostname or "").lower() == "text.pollinations.ai" else f"{spec.base_url}/chat/completions")
                     async with client.stream("POST",endpoint,headers=headers,json=payload) as response:
                         logger.info("[NEXO_DEBUG_PROVIDER] stream_http provider=%s status=%s", spec.provider_id, response.status_code)
