@@ -18,6 +18,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('AI_READY_PATH: "/v1/ai-ready"', config)
 
 
+    def test_mobile_runtime_config_has_safe_operational_bounds(self):
+        config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
+        self.assertIn("PROBE_TIMEOUT_MS: 4000", config)
+        self.assertIn("CIRCUIT_COOLDOWN_MS: 10000", config)
+        self.assertIn("CIRCUIT_FAILURE_THRESHOLD: 2", config)
+        self.assertNotIn('http://', config)
+
     def test_stream_allows_server_fallback_and_has_http_recovery(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn('"X-C33-Allow-Local-Fallback": "true"', app)
