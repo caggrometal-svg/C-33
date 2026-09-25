@@ -470,9 +470,19 @@ class PostgresState:
                 except ValueError as exc:
                     raise RuntimeError("peer invalid replication response") from exc
                 accepted = int(body.get("accepted", -1))
-                received = int(body.get("received", len(messages)))
+                received = int(body.get("received", -1))
+                accepted_ids = body.get("accepted_ids")
+                receipt_sha256 = str(body.get("receipt_sha256", "")).strip()
+                expected_ids = [message.message_id for message in messages]
+                expected_sha256 = hashlib.sha256(raw).hexdigest()
                 if received != len(messages) or accepted != len(messages):
-                    raise RuntimeError(f"peer partial replication accepted={accepted} received={received} expected={len(messages)}")
+                    raise RuntimeError(
+                        f"peer partial replication accepted={accepted} received={received} expected={len(messages)}"
+                    )
+                if accepted_ids != expected_ids:
+                    raise RuntimeError("peer replication receipt ids mismatch")
+                if receipt_sha256 != expected_sha256:
+                    raise RuntimeError("peer replication receipt digest mismatch")
         except Exception as exc:  # bounded background replication
             for message in messages:
                 await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
