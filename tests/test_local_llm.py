@@ -17,6 +17,16 @@ class LocalLLMTests(unittest.IsolatedAsyncioTestCase):
             if old is not None:
                 os.environ["C33_LOCAL_LLM_BASE_URL"] = old
 
+    async def test_default_constructor_is_safe_with_slots(self):
+        old = os.environ.pop("C33_LOCAL_LLM_BASE_URL", None)
+        try:
+            client = LocalLLMClient()
+            self.assertEqual(client.config.base_url, "http://127.0.0.1:11434/v1")
+            self.assertEqual(client.config.model, "llama3.2:3b")
+        finally:
+            if old is not None:
+                os.environ["C33_LOCAL_LLM_BASE_URL"] = old
+
     async def test_real_openai_compatible_complete(self):
         seen = {}
         async def handler(request: httpx.Request) -> httpx.Response:

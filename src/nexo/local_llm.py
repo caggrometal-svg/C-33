@@ -26,11 +26,11 @@ class LocalLLMConfig:
 
     @classmethod
     def from_environment(cls) -> "LocalLLMConfig":
-        base_url = os.getenv("C33_LOCAL_LLM_BASE_URL", cls.base_url).strip().rstrip("/")
-        model = os.getenv("C33_LOCAL_LLM_MODEL", cls.model).strip() or cls.model
+        base_url = os.getenv("C33_LOCAL_LLM_BASE_URL", "http://127.0.0.1:11434/v1").strip().rstrip("/")
+        model = os.getenv("C33_LOCAL_LLM_MODEL", "llama3.2:3b").strip() or "llama3.2:3b"
         api_key_env = os.getenv("C33_LOCAL_LLM_API_KEY_ENV", "").strip() or None
         try:
-            timeout_ms = int(os.getenv("C33_LOCAL_LLM_TIMEOUT_MS", str(cls.timeout_ms)))
+            timeout_ms = int(os.getenv("C33_LOCAL_LLM_TIMEOUT_MS", "6000"))
         except ValueError as exc:
             raise LocalLLMConfigurationError("C33_LOCAL_LLM_TIMEOUT_MS must be an integer") from exc
         parsed = urlparse(base_url)
