@@ -649,24 +649,56 @@ form.addEventListener("submit", async (event) => {
   resizeInput();
   send.disabled = true;
   transition("READY", "NEXO · procesando…");
+  const requestId = createId();
+  const requestPayload = {
+    message,
+    user_id: userId,
+    conversation_id: conversationId,
+    request_id: requestId,
+    stream: true,
+    personality: nexoSettings.personality,
+    voice_tone: nexoSettings.voiceTone,
+  };
   try {
     await streamChatWithFailover({
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        user_id: userId,
-        conversation_id: conversationId,
-        request_id: createId(),
-        stream: true,
-        personality: nexoSettings.personality,
-        voice_tone: nexoSettings.voiceTone,
-      }),
+      body: JSON.stringify(requestPayload),
     });
   } catch (error) {
     if (error?.code === "REMOTE_EXHAUSTED") {
-      addMessage("NEXO no pudo conectarse a la IA remota. Diagnóstico: " + (error.message || "REMOTE_EXHAUSTED"), "error");
-      transition("OFFLINE", "NEXO · IA remota no disponible");
+      recordDiagnostic("stream-exhausted", {
+        reason: error.message || "REMOTE_EXHAUSTED",
+        request_id: requestId,
+      });
+      try {
+        const httpResult = await requestWithFailover(API_PATH, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...requestPayload, stream: false }),
+        });
+        const data = httpResult?.data;
+        if (data?.synthesis) {
+          addMessage(data.synthesis, "assistant");
+          transition("AI_READY", "NEXO · IA lista · recuperación HTTP");
+          recordDiagnostic("stream-http-recovery", {
+            request_id: requestId,
+            provider: data?._meta?.provider_used || "",
+            status: httpResult?.response?.status ?? null,
+          });
+        } else {
+          throw new Error("http_recovery_empty_response");
+        }
+      } catch (recoveryError) {
+        recordDiagnostic("stream-http-recovery-failed", {
+          request_id: requestId,
+          reason: normalizeError(recoveryError),
+          error_name: recoveryError?.name || "",
+          error_message: recoveryError?.message || "",
+        });
+        addMessage("NEXO no pudo conectarse a la IA remota. Diagnóstico: " + (error.message || "REMOTE_EXHAUSTED") + " | recuperación HTTP: " + (recoveryError.message || "failed"), "error");
+        transition("OFFLINE", "NEXO · IA remota no disponible");
+      }
     } else {
       addMessage(error.message || "Error de conexión.", "error");
       transition("DEGRADED", "NEXO · servicio no disponible");
