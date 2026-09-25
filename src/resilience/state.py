@@ -476,7 +476,7 @@ class PostgresState:
         signature = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
         ok_count = fail_count = 0
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_ms / 1000, connect=min(0.4, timeout_ms / 1000))) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_ms / 1000, connect=min(0.4, timeout_ms / 1000)), trust_env=False) as client:
                 response = await client.post(
                     peer_url.rstrip("/") + "/internal/replicate",
                     content=raw,
