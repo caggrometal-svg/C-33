@@ -163,3 +163,23 @@ The roadmap's phases 31-40 are now represented by deterministic contracts in `sr
 - **40 — Auto Mode:** deterministic router selects among LOCAL, RESEARCH, MEMORY, ACTION and CHAT; the live Brain now records the selected mode and contract in turn metadata.
 
 Runtime certification remains subject to the same rule above: tests must pass, the deployed SHA must match the source SHA, the live route must be observed, and recovery behavior must be documented.
+
+## Closure sections 41-60 (2026-09-25)
+
+The source PDF's sections 41-60 close the architecture rather than introducing ETAPA 41-60. They are now represented by `src/nexo/phases_41_60.py` and `tests/test_phases_41_60.py`.
+
+- **41 — Degraded mode:** deterministic capability-preservation policy for Web failure, provider failure/failover, memory failure, and local fallback.
+- **42 — Research as object:** structured research object with question, sources, findings, confidence, timestamp and summary.
+- **43 — Long-term context:** selective persistence thresholds and deterministic deduplication key.
+- **44 — Controlled autonomy:** bounded tool sequence with an explicit maximum of 8 steps and authorization state.
+- **45 — Permissions:** least-privilege matrix for WEB, MEMORY, FILES and AUTOMATION.
+- **46 — Architecture of Trust:** reconstructable turn record carrying request, reason, knowledge state and optional tool/source/model fields.
+- **47 — NEXO protocol:** reuses the existing versioned NEXO envelope contract.
+- **48-50 — Multidevice, portability, decentralization:** shared-core device manifest, portable bundle compatibility and explicit decentralization path.
+- **51-52 — Local/remote cooperation and privacy:** local-first private work and network access only when task-required.
+- **53-57 — Modes:** Research, Memory, Action, Chat and Auto contracts.
+- **58 — Mode matrix:** explicit mode capability matrix.
+- **59 — Master test:** 12-case integration battery defined as the closure test plan.
+- **60 — Success criterion:** explicit capability set for functional maturity; this remains an acceptance criterion, not a claim of completed maturity.
+
+The live Brain now emits closure metadata for degraded mode, selected mode/matrix, autonomy contract, and master-test contract.
