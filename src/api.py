@@ -18,7 +18,7 @@ import asyncpg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 _SRC_DIR = str(Path(__file__).resolve().parent)
 if _SRC_DIR not in __import__("sys").path:
@@ -83,6 +83,11 @@ class ChatRequest(BaseModel):
     stream: bool = False
     personality: str = Field(default="base", max_length=32)
     voice_tone: str = Field(default="neutral", max_length=32)
+
+    @field_validator("message", "user_id", "conversation_id", "request_id", "personality", "voice_tone", mode="before")
+    @classmethod
+    def strip_text_fields(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
 
 class ResponseMeta(BaseModel):
     provider_used: str
