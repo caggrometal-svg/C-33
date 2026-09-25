@@ -75,6 +75,13 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('if role not in {"user", "assistant", "system"}:', source)
         self.assertIn("continue", source)
 
+    async def test_replication_sender_requires_exact_peer_receipt(self):
+        source = __import__("inspect").getsource(PostgresState.replicate_batch)
+        self.assertIn("accepted_ids = body.get(\"accepted_ids\")", source)
+        self.assertIn("receipt_sha256 = str(body.get(\"receipt_sha256\", \"\")).strip()", source)
+        self.assertIn('raise RuntimeError("peer replication receipt ids mismatch")', source)
+        self.assertIn('raise RuntimeError("peer replication receipt digest mismatch")', source)
+
     async def test_durable_memory_match_uses_complete_tokens(self):
         self.assertEqual(PostgresState._memory_match_score("red", "credencial"), 0)
         self.assertEqual(PostgresState._memory_match_score("conexion", "conexión remota"), 1)
