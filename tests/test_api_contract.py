@@ -120,6 +120,12 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('safe capability metadata', self.api)
         self.assertNotIn('CONTROL_TOKEN', self.api.split('@app.get("/v1/capabilities")', 1)[1].split('@app.get("/v1/metrics")', 1)[0])
 
+    def test_inbound_host_and_peer_egress_are_hardened(self):
+        self.assertIn("TrustedHostMiddleware", self.api)
+        self.assertIn("C33_ALLOWED_HOSTS", self.api)
+        self.assertIn("trust_env=False", self.api)
+        self.assertIn("follow_redirects=False", self.api)
+
     def test_http_and_stream_transport_errors_use_nested_context(self):
         self.assertGreaterEqual(self.providers.count("cause = exc.__cause__"), 2)
         self.assertGreaterEqual(self.providers.count("temporary failure in name resolution"), 2)
