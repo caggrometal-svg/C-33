@@ -206,7 +206,20 @@ class ModelHub:
         *,
         preferred_provider: str | None = None,
     ) -> Any:
-        return await self.cascade.complete(messages, budget, preferred_provider=preferred_provider)
+        # Keep the ModelHub contract compatible with lightweight test doubles and
+        # legacy cascade adapters that do not yet expose preferred_provider.
+        complete = self.cascade.complete
+        if preferred_provider is not None:
+            try:
+                signature = inspect.signature(complete)
+            except (TypeError, ValueError):
+                signature = None
+            if signature is not None and (
+                "preferred_provider" in signature.parameters
+                or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values())
+            ):
+                return await complete(messages, budget, preferred_provider=preferred_provider)
+        return await complete(messages, budget)
 
     def stream(
         self,
