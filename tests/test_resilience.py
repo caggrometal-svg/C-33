@@ -64,6 +64,11 @@ class FaultTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, json={"choices":[{"message":{"content":"C33_OK"}}]}, request=request)
 
 class ResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_replication_import_validates_message_role_before_insert(self):
+        source = __import__("inspect").getsource(PostgresState.import_replication_batch)
+        self.assertIn('if role not in {"user", "assistant", "system"}:', source)
+        self.assertIn("continue", source)
+
     async def test_durable_memory_match_uses_complete_tokens(self):
         self.assertEqual(PostgresState._memory_match_score("red", "credencial"), 0)
         self.assertEqual(PostgresState._memory_match_score("conexion", "conexión remota"), 1)

@@ -478,6 +478,8 @@ class PostgresState:
                         user_id = str(item["user_id"])
                         seq = int(item["seq"])
                         role = str(item["role"])
+                        if role not in {"user", "assistant", "system"}:
+                            continue
                         content = str(item["content"]).strip()
                         metadata = json.dumps(dict(item.get("metadata") or {}), ensure_ascii=False)
                         request_id = item.get("request_id")
