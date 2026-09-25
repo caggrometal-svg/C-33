@@ -75,11 +75,11 @@ Runtime verification: Railway production deployment `b953c1c0-f64d-4dfd-a1f4-d14
 
 Phase-21 contract is therefore closed for the implemented scope. Remaining Model Hub work is explicitly later: cost/latency-aware optimization and a real local provider.
 
-### Tool Hub — PARTIAL
+### Tool Hub — PHASE 22 — IN PROGRESS
 
-Tool registry and permissions exist.
+Tool registry and permissions are active. Web search/fetch, UTC time and calculation are registered. Durable memory_search and state-mutating memory_store are now exposed through the same ToolHub boundary, with mutation permission enforced by the tool policy.
 
-Next: memory search/store, documents, APIs and bounded actions.
+Next: document search, explicit schemas for tool inputs/outputs, and bounded external/API actions.
 
 ### Orchestrator — PARTIAL
 
