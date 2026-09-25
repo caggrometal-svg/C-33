@@ -14,6 +14,7 @@ from nexo.tools_builtin import calculate, utc_time
 from nexo.memory_engine import MemoryEngine
 from nexo.phases_23_30 import BoundedOrchestrator, KnowledgeState, PrivacyPolicy, RequestCycle, TTLCache, VerificationPolicy, redact_secrets
 from nexo.phases_31_40 import AutoModeRouter, NexoMode, PrivacyByDefaultPolicy
+from nexo.phases_41_60 import ControlledAutonomyPolicy, DegradedModePolicy, MasterTestPlan, NexoModeMatrix
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
@@ -61,6 +62,9 @@ class Brain:
         self.privacy_policy = PrivacyPolicy()
         self.privacy_default = PrivacyByDefaultPolicy()
         self.mode_router = AutoModeRouter()
+        self.degraded_policy = DegradedModePolicy()
+        self.autonomy_policy = ControlledAutonomyPolicy()
+        self.mode_matrix = NexoModeMatrix()
         self.cache = TTLCache()
 
     async def _tool_memory_search(self, query: str, user_id: str = "anonymous", limit: int = 8) -> list[dict[str, Any]]:
@@ -268,6 +272,9 @@ class Brain:
         mode_plan = self.mode_router.plan(prompt, has_memory=bool(memory_hits), authorized_action=False)
         privacy_decision = self.privacy_default.decide(prompt)
         preferred_provider = selection.selected_provider if not selection.local_required and not privacy_decision.local_required else None
+        mode_entry = self.mode_matrix.get(mode_plan["selected_mode"])
+        autonomy_contract = self.autonomy_policy.plan(("memory_search", "web_search", "web_fetch", "generate"), authorized=False, max_steps=8)
+        master_test_contract = MasterTestPlan.validate()
         if selection.local_required and selection.selected_provider is None:
             response = LocalModel.complete(prompt, selection.reason)
             return AgentResult(
@@ -290,6 +297,7 @@ class Brain:
                     "request_cycle": list(self.request_cycle.steps),
                     "verification_required": self.verification_policy.requires_research(prompt),
                     "knowledge_state": KnowledgeState.UNDETERMINED.value,
+                    "degraded_mode": self.degraded_policy.decide(provider_available=False, local_available=True).mode.value,
                     "mode": mode_plan["mode"],
                     "selected_mode": mode_plan["selected_mode"],
                     "mode_reason": mode_plan["reason"],
@@ -320,6 +328,25 @@ class Brain:
                 "latency_ms": generation.meta.latency_ms,
                 "final_reason": generation.meta.final_reason,
                 "system_status": generation.meta.system_status,
+                "degraded_mode": self.degraded_policy.decide(
+                    web_available=not (route.use_web and not sources),
+                    provider_available=True,
+                    memory_available=True,
+                    local_available=True,
+                    failover_used=generation.meta.failover_triggered,
+                ).mode.value,
+                "mode_matrix": {
+                    "internet": mode_entry.internet,
+                    "memory": mode_entry.memory,
+                    "tools": mode_entry.tools,
+                    "chat_optional": mode_entry.chat_optional,
+                },
+                "autonomy_contract": {
+                    "max_steps": autonomy_contract.max_steps,
+                    "approval_required": autonomy_contract.approval_required,
+                    "operations": autonomy_contract.operations,
+                },
+                "master_test_contract": master_test_contract,
                 "model_selection_intent": selection.intent,
                 "model_selection_provider": selection.selected_provider,
                 "model_selection_reason": selection.reason,
