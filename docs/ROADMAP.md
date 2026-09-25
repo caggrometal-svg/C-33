@@ -25,99 +25,52 @@ C-33
 -> NEXO LIBRE
 ```
 
-## 2026-09-25 status
+## 2026-09-25 status — AUDIT REAL
 
-### C-33 — FINAL CERTIFICATION
+Fuente de verdad: `main`.
 
-Integrated: yes, on `main`.
+**HEAD actual:** `b2caf0f85fa82986ed5c2e2994f382e1dfd92826`.
 
-Verified commit: `14652ccad9687ce203b14aa0ee9b373512c6a1bf`.
+**Implementación:** el repositorio contiene contratos hasta **ETAPA 40 — AUTO MODE** y las secciones de cierre 41-60.
 
-Verified deployment: Railway production deployment `04304de8-3f83-421c-af99-905d72a9c9c7`, status `SUCCESS`.
+**Certificación:** el último gate completo antes de este ciclo falló en Web/IA remota con HTTP 504 porque el runtime agotaba aproximadamente 12 s tras Vireonix + Animica. El código ya fue corregido para trabajar con presupuesto de 18 s y límite por proveedor de 4.5 s.
 
-Observed production route sequence: health, readiness, chat, AI readiness, chat, SSE stream, status and diagnostics all returned HTTP 200 during the certification traffic recorded at 07:40 UTC.
+**Acciones:** NEXO Progress Gate sobre el nuevo HEAD está PASS. C-33 Certification está ejecutándose sobre el nuevo HEAD.
 
-Still required:
-- reproducible evidence of induced provider failover;
-- direct end-to-end verification of Web and Memory assertions;
-- stable APK Release associated with version/commit/tests/date;
-- Android verification of the exact published artifact.
+### Correcciones aplicadas
+- PostgreSQL usa realmente el esquema configurado en el pool y en `PostgresState`.
+- Inicialización PostgreSQL fija `search_path` al esquema configurado.
+- Failover conserva presupuesto para un tercer proveedor.
+- La regresión de resiliencia exige alcanzar un tercer proveedor en un presupuesto de 18 s.
+- Railway production fue ajustado a BACKEND_TOTAL_TIMEOUT_MS=18000, CLIENT_TIMEOUT_MS=22000 y NETWORK_TIMEOUT_SECONDS=8.
 
-### Observability — IMPLEMENTED
+### Estado operacional por bloque
 
-Request IDs, metrics and diagnostics exist. The next step is to encode the important runtime claims as regression assertions.
+| Bloque | Estado |
+|---|---|
+| C-33 / salud / readiness | ✅ implementado y probado |
+| Circuit breaker | ✅ implementado y probado |
+| Failover | 🟡 implementado; falta certificación inducida reproducible |
+| Observabilidad | ✅ implementado |
+| Web + fuentes | 🟡 implementado; certificación live bloqueada por provider path |
+| Memoria | 🟡 durable + ranking determinista; E2E pendiente |
+| Model Hub | 🟡 integrado; runtime depende de provider path |
+| Tool Hub | 🟡 implementado; runtime pendiente |
+| Orchestrator | 🟡 bounded + integrado; E2E pendiente |
+| ETAPAS 23-30 | 🟡 contratos presentes; certificación live pendiente donde aplica |
+| ETAPAS 31-40 | 🟡 contratos presentes; Auto Mode integrado; certificación live pendiente |
+| Secciones 41-60 | 🟡 contratos y tests presentes; cierre maestro pendiente |
+| Local AI real | 🔴 pendiente |
+| Export/import usuario | 🟡 parcial |
+| Autonomía externa | 🔴 pendiente |
+| Portabilidad completa | 🟡 parcial |
+| Descentralización completa | 🔴 pendiente |
+| Android release certificada | 🟡 pipeline presente; artifact final aún no certificado |
 
-### Failover — IMPLEMENTED, CERTIFICATION INCOMPLETE
+### Regla de avance
+Un bloque solo pasa a producción cuando contrato + tests + commit + SHA desplegado + runtime observado + recuperación están alineados.
 
-Provider cascade and persistent circuit breaker are real. Production logs show rate limits, timeouts, circuit-open states and multiple providers.
-
-Next: controlled failure injection and proof that the next provider answers within the same request budget.
-
-### Web Engine — PARTIAL
-
-Search, fetch and source tracking exist.
-
-Next: formal source object with URL, timestamp, relevant fragment and provenance tests.
-
-### Memory Engine — PARTIAL
-
-Durable conversation context and deterministic ranking exist. Portable bundles exist.
-
-Next: short-term/session/persistent/research layers, confidence/importance/expiration/deduplication and complete user-facing export/import.
-
-### Model Hub — PHASE 21 — COMPLETE (DEPLOYED)
-
-Provider-neutral profiles now carry capability metadata. `ModelSelectionPolicy` classifies simple, reasoning, summary, privacy and local intents and chooses a matching configured capability deterministically.
-
-`ModelHub.select_for_task()` is connected to the real `ProviderCascade` for remote generation, including SSE. Privacy/local intent does not silently fall back to a remote provider when no local capability exists; the current deterministic local fallback is explicitly marked degraded.
-
-Runtime verification: Railway production deployment `b953c1c0-f64d-4dfd-a1f4-d1414ec60d9d` is `SUCCESS` on source SHA `00631f51004bfe4980054f73b577759a4abcc3e7`. The container started successfully and Railway recorded `GET /health` → `200 OK` after the phase-21 changes.
-
-Phase-21 contract is therefore closed for the implemented scope. Remaining Model Hub work is explicitly later: cost/latency-aware optimization and a real local provider.
-
-### Tool Hub — PHASE 22 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
-
-Tool registry and permissions are active. Web search/fetch, UTC time and calculation are registered. Durable memory_search and state-mutating memory_store are now exposed through the same ToolHub boundary, with mutation permission enforced by the tool policy.
-
-Next: runtime certification, document search, explicit schemas for tool inputs/outputs, and bounded external/API actions.
-
-### Orchestrator — PHASE 23 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
-
-Turn-level planning remains in NexoOrchestrator. Phase-23 adds a bounded execution contract with a hard step budget; no unrestricted agent loop is introduced.
-
-Next: wire the bounded executor into the live request path.
-
-### Verification — PHASE 25-26 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
-
-VerificationPolicy now defines research-required detection and the three explicit knowledge states: SÉ, PUEDO INVESTIGAR and NO PUEDO DETERMINARLO.
-
-Next: integrate contradiction handling and multi-source verification into the live turn.
-
-### Local AI — PENDING
-
-The local fallback is deterministic, not an LLM.
-
-Next: integrate a real local model through the same provider contract and prove offline operation.
-
-### Export / import — PARTIAL
-
-Portable bundle schema and checksum validation exist.
-
-Next: user-facing round-trip flow with compatibility tests.
-
-### Autonomy — PENDING
-
-No unrestricted agent loop should be added before permissions, budgets and stop conditions are explicit.
-
-### Portability — PARTIAL
-
-Backend replication and portable bundles exist.
-
-Next: portable identity, memory and configuration across compatible installations.
-
-### Decentralization — PENDING
-
-Replication is a resilience component, not yet a fully distributed architecture.
+El detalle completo del mapa 0-72 está en `docs/NEXO-AUDIT-2026-09-25.md`.
 
 ## Advancement rule
 
