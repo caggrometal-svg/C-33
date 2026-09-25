@@ -507,18 +507,22 @@ class PostgresState:
                         seq = int(item["seq"])
                         role = str(item["role"])
                         if role not in {"user", "assistant", "system"}:
-                            continue
+                            raise ValueError(f"invalid_role:{role}")
                         content = str(item["content"]).strip()
-                        if (
-                            not conversation_id
-                            or not user_id
-                            or len(conversation_id) > _MAX_REPLICATION_ID_CHARS
-                            or len(user_id) > _MAX_REPLICATION_ID_CHARS
-                            or not content
-                            or len(content) > _MAX_REPLICATION_TEXT_CHARS
-                            or seq < 1
-                        ):
-                            continue
+                        if not conversation_id:
+                            raise ValueError("conversation_id_required")
+                        if not user_id:
+                            raise ValueError("user_id_required")
+                        if len(conversation_id) > _MAX_REPLICATION_ID_CHARS:
+                            raise ValueError("conversation_id_too_long")
+                        if len(user_id) > _MAX_REPLICATION_ID_CHARS:
+                            raise ValueError("user_id_too_long")
+                        if not content:
+                            raise ValueError("content_required")
+                        if len(content) > _MAX_REPLICATION_TEXT_CHARS:
+                            raise ValueError("content_too_long")
+                        if seq < 1:
+                            raise ValueError("seq_must_be_positive")
                         metadata = dict(item.get("metadata") or {})
                         request_id = item.get("request_id")
                         existing = await conn.fetchrow(
@@ -576,8 +580,10 @@ class PostgresState:
                         accepted += 1
                     except ReplicationConflictError:
                         raise
-                    except (KeyError, ValueError, TypeError, asyncpg.PostgresError):
-                        continue
+                    except (KeyError, ValueError, TypeError) as exc:
+                        raise ValueError(f"invalid_replication_message:{exc}") from exc
+                    except asyncpg.PostgresError as exc:
+                        raise ValueError(f"replication_storage_error:{exc.__class__.__name__}") from exc
         return accepted
 
     async def replication_pending_count(self) -> int:
