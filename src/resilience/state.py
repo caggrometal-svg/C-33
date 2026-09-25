@@ -640,6 +640,38 @@ class PostgresState:
                         raise ValueError(f"replication_storage_error:{exc.__class__.__name__}") from exc
         return accepted
 
+    async def replication_integrity(self) -> dict[str, Any]:
+        """Return a privacy-preserving deterministic digest of the durable message set."""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
+                "FROM c33_messages ORDER BY id"
+            )
+        digest = hashlib.sha256()
+        unique_ids: set[str] = set()
+        for row in rows:
+            message_id = str(row["id"])
+            unique_ids.add(message_id)
+            record = {
+                "id": message_id,
+                "conversation_id": str(row["conversation_id"]),
+                "user_id": str(row["user_id"]),
+                "seq": int(row["seq"]),
+                "role": str(row["role"]),
+                "content": str(row["content"]),
+                "metadata": self._metadata_dict(row["metadata"]),
+                "request_id": str(row["request_id"]) if row["request_id"] is not None else None,
+                "created_at": row["created_at"].astimezone(timezone.utc).isoformat(),
+            }
+            canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            digest.update(canonical)
+            digest.update(b"\n")
+        return {
+            "total_messages": len(rows),
+            "unique_message_ids": len(unique_ids),
+            "message_digest": digest.hexdigest(),
+        }
+
     async def replication_pending_count(self) -> int:
         async with self.pool.acquire() as conn:
             return int(await conn.fetchval("SELECT COUNT(*) FROM c33_replication_outbox WHERE synced_at IS NULL"))
