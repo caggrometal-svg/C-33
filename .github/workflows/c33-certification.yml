@@ -137,6 +137,34 @@ jobs:
           if not str(chat_data.get("synthesis", "")).strip():
               raise SystemExit("remote chat returned empty synthesis")
 
+          web_payload = {
+              "message": "Usa Internet: consulta una fuente externa sobre Artemis II y responde mencionando la URL de una fuente consultada.",
+              "user_id": "github-web-certification",
+              "conversation_id": "web-cert-" + uuid.uuid4().hex,
+              "request_id": uuid.uuid4().hex,
+              "stream": False,
+          }
+          web_chat = httpx.post(
+              base + "/v1/chat",
+              json=web_payload,
+              headers={
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          )
+          if web_chat.status_code != 200:
+              raise SystemExit(f"web-enabled chat failed: {web_chat.status_code} {web_chat.text}")
+          web_data = web_chat.json()
+          web_meta = web_data.get("_meta", {})
+          web_sources = web_data.get("web_searches", [])
+          if web_meta.get("used_local_fallback"):
+              raise SystemExit("web-enabled chat unexpectedly used local fallback")
+          if not str(web_data.get("synthesis", "")).strip():
+              raise SystemExit("web-enabled chat returned empty synthesis")
+          if not isinstance(web_sources, list) or not any(str(source).startswith(("http://", "https://")) for source in web_sources):
+              raise SystemExit(f"web navigation produced no external sources: {json.dumps(web_data)}")
+          
           ai = httpx.get(base + "/v1/ai-ready", timeout=8)
           if ai.status_code != 200:
               raise SystemExit(f"/v1/ai-ready after remote generation failed: {ai.status_code} {ai.text}")
