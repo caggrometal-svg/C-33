@@ -307,6 +307,64 @@ jobs:
               raise SystemExit(f"second remote chat failed: {second.status_code} {second.text}")
           second_data = second.json()
           second_meta = second_data.get("_meta", {})
+
+          export_request = {
+              "user_id": payload["user_id"],
+              "conversation_id": payload["conversation_id"],
+              "identity_id": payload["user_id"],
+              "device_id": "github-export-device",
+              "preferences": {"font_size": "medium", "voice_tone": "neutral"},
+              "configuration": {"backend_urls": [base]},
+          }
+          exported = httpx.post(base + "/v1/export", json=export_request, timeout=12)
+          if exported.status_code != 200:
+              raise SystemExit(f"export failed: {exported.status_code} {exported.text}")
+          export_data = exported.json()
+          bundle = export_data.get("bundle", {})
+          if not bundle.get("sha256") or bundle.get("user_id") != payload["user_id"]:
+              raise SystemExit(f"invalid export bundle: {json.dumps(export_data)}")
+
+          imported_user = "github-import-" + uuid.uuid4().hex[:12]
+          imported_conversation = "import-" + uuid.uuid4().hex
+          migrated_messages = []
+          for message in bundle.get("messages", []):
+              copy = dict(message)
+              copy["user_id"] = imported_user
+              copy["conversation_id"] = imported_conversation
+              migrated_messages.append(copy)
+          migrated_bundle = dict(bundle)
+          migrated_bundle["user_id"] = imported_user
+          migrated_bundle["identity_id"] = imported_user
+          migrated_bundle["device_id"] = "github-import-device"
+          migrated_bundle["messages"] = migrated_messages
+          payload_for_digest = dict(migrated_bundle)
+          payload_for_digest.pop("sha256", None)
+          raw_digest = json.dumps(
+              payload_for_digest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+          ).encode("utf-8")
+          import hashlib
+          migrated_bundle["sha256"] = hashlib.sha256(raw_digest).hexdigest()
+
+          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle}, timeout=12)
+          if imported.status_code != 200:
+              raise SystemExit(f"import failed: {imported.status_code} {imported.text}")
+          import_data = imported.json()
+          if int(import_data.get("accepted", 0)) != len(migrated_messages):
+              raise SystemExit(f"import did not accept full bundle: {json.dumps(import_data)}")
+
+          action_gate = httpx.post(
+              base + "/v1/actions/execute",
+              json={
+                  "user_id": payload["user_id"],
+                  "action": "certification.denied",
+                  "url": "https://example.com",
+                  "authorized": False,
+              },
+              timeout=8,
+          )
+          if action_gate.status_code != 401:
+              raise SystemExit(f"action authorization gate failed: {action_gate.status_code} {action_gate.text}")
+
           if second_meta.get("used_local_fallback"):
               raise SystemExit("second remote chat unexpectedly used local fallback")
           if not str(second_data.get("synthesis", "")).strip():
