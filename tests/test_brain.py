@@ -84,6 +84,18 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertTrue(plan.verify)
         self.assertEqual(plan.reason, "web+memory")
 
+    def test_orchestrator_avoids_substring_false_positive_for_web_marker(self):
+        from nexo.architecture import NexoOrchestrator
+
+        plan = NexoOrchestrator().plan("preciosos detalles del diseño", [])
+        self.assertFalse(plan.use_web)
+
+    def test_orchestrator_still_detects_standalone_web_marker(self):
+        from nexo.architecture import NexoOrchestrator
+
+        plan = NexoOrchestrator().plan("dame el precio actual", [])
+        self.assertTrue(plan.use_web)
+
 
 if __name__ == "__main__":
     unittest.main()

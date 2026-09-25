@@ -219,7 +219,8 @@ class NexoOrchestrator:
             "consultar",
         }
         use_web = bool(re.search(r"https?://\S+", lower)) or explicit_web or any(
-            marker in lower for marker in web_markers
+            re.search(rf"(?<!\w){re.escape(marker)}(?!\w)", lower) is not None
+            for marker in web_markers
         )
         use_memory = bool(memory_hits)
         reason = "web+memory" if use_web and use_memory else "web" if use_web else "memory" if use_memory else "direct"
