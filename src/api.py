@@ -680,7 +680,9 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                     "sources": sources,
                 }, ensure_ascii=False) + "\n\n"
             logger.info("[NEXO_DEBUG_STREAM] provider_stream_begin request_id=%s remaining_ms=%s sources=%s", request_id, budget.remaining_ms, len(sources))
-            async for piece, meta in providers.stream(messages, budget):
+            selection = b.models.select_for_task(payload.message)
+            preferred_provider = selection.selected_provider if not selection.local_required else None
+            async for piece, meta in providers.stream(messages, budget, preferred_provider=preferred_provider):
                 if await request.is_disconnected():
                     return
                 stream_meta = meta
