@@ -21,10 +21,11 @@ class Nexo61To100Tests(unittest.TestCase):
         self.assertTrue(all(row["acceptance"].strip() for row in Nexo61To100.matrix()))
         self.assertEqual({row["number"] for row in Nexo61To100.matrix()}, set(range(61, 101)))
 
-    def test_future_external_capabilities_are_blue(self):
-        self.assertIn("REAL_LOCAL_LLM", Nexo61To100.blue_capabilities())
-        self.assertIn("PEER_REPLICATION_QUIESCED", Nexo61To100.blue_capabilities())
-        self.assertNotIn("RED", Nexo61To100.blue_capabilities())
+    def test_closed_external_capabilities_are_closed(self):
+        self.assertIn("REAL_LOCAL_LLM", Nexo61To100.closed_capabilities())
+        self.assertIn("PEER_REPLICATION_QUIESCED", Nexo61To100.closed_capabilities())
+        self.assertEqual(Nexo61To100.blue_capabilities(), ())
+        self.assertNotIn("RED", Nexo61To100.closed_capabilities())
 
     def test_boundary_is_strict(self):
         self.assertFalse(
