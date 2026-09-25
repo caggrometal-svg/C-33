@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -75,6 +76,8 @@ def load_settings(dotenv_path: str | None = ".env") -> Settings:
         raise ValueError("AI_ZERO_COST_MODE must remain enabled")
     api_key = None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
+    if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
+        raise ValueError("MODEL_BASE_URL must point to an approved zero-cost provider")
     return Settings(
         app_name=os.getenv("APP_NAME", "C-33").strip() or "C-33",
         environment=os.getenv("APP_ENV", "development").strip() or "development",
