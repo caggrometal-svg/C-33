@@ -4,7 +4,7 @@ from nexo.phases_61_100 import Nexo61To100
 
 
 class SixCapabilityBoundaryTests(unittest.TestCase):
-    def test_all_six_are_explicitly_tracked(self):
+    def test_all_six_are_tracked_without_red_state(self):
         required = {
             "REAL_LOCAL_LLM",
             "USER_EXPORT_IMPORT_ROUNDTRIP",
@@ -13,7 +13,8 @@ class SixCapabilityBoundaryTests(unittest.TestCase):
             "FULL_DECENTRALIZATION",
             "PEER_REPLICATION_QUIESCED",
         }
-        self.assertTrue(required.issubset(set(Nexo61To100.BLUE_CAPABILITIES)))
+        self.assertTrue(required.issubset(set(Nexo61To100.CLOSED_CAPABILITIES)))
+        self.assertEqual(Nexo61To100.blue_capabilities(), ())
 
     def test_no_red_state(self):
         self.assertFalse(Nexo61To100.has_red())
