@@ -23,6 +23,10 @@ from memory.store import MemoryEntry
 _MAX_REPLICATION_TEXT_CHARS = 20_000
 _MAX_REPLICATION_ID_CHARS = 256
 
+class ReplicationConflictError(ValueError):
+    """Raised when a replicated message collides with different durable state."""
+
+
 SCHEMA = r'''
 CREATE TABLE IF NOT EXISTS c33_conversation_heads (
     conversation_id TEXT PRIMARY KEY,
@@ -458,6 +462,14 @@ class PostgresState:
                 )
                 if response.status_code != 200:
                     raise RuntimeError(f"peer HTTP {response.status_code}")
+                try:
+                    body = response.json()
+                except ValueError as exc:
+                    raise RuntimeError("peer invalid replication response") from exc
+                accepted = int(body.get("accepted", -1))
+                received = int(body.get("received", len(messages)))
+                if received != len(messages) or accepted != len(messages):
+                    raise RuntimeError(f"peer partial replication accepted={accepted} received={received} expected={len(messages)}")
         except Exception as exc:  # bounded background replication
             for message in messages:
                 await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
@@ -470,8 +482,8 @@ class PostgresState:
         return ok_count, fail_count
 
     async def import_replication_batch(self, messages: list[dict[str, Any]]) -> int:
-        """Import replicated messages preserving their source conversation sequence."""
-        imported = 0
+        """Import replicated messages idempotently and reject conflicting state."""
+        accepted = 0
         async with self.pool.acquire() as conn:
             async with conn.transaction():
                 for item in messages[:100]:
@@ -491,28 +503,63 @@ class PostgresState:
                             or len(user_id) > _MAX_REPLICATION_ID_CHARS
                             or not content
                             or len(content) > _MAX_REPLICATION_TEXT_CHARS
+                            or seq < 1
                         ):
                             continue
-                        metadata = json.dumps(dict(item.get("metadata") or {}), ensure_ascii=False)
+                        metadata = dict(item.get("metadata") or {})
                         request_id = item.get("request_id")
-                        if not conversation_id or not user_id or not content or seq < 1:
+                        existing = await conn.fetchrow(
+                            "SELECT conversation_id,user_id,seq,role,content,metadata,request_id "
+                            "FROM c33_messages WHERE id=$1",
+                            mid,
+                        )
+                        if existing:
+                            same = (
+                                str(existing["conversation_id"]) == conversation_id
+                                and str(existing["user_id"]) == user_id
+                                and int(existing["seq"]) == seq
+                                and str(existing["role"]) == role
+                                and str(existing["content"]) == content
+                                and self._metadata_dict(existing["metadata"]) == metadata
+                                and existing["request_id"] == request_id
+                            )
+                            if not same:
+                                raise ReplicationConflictError(f"message_id_conflict:{mid}")
+                            accepted += 1
                             continue
+                        sequence_owner = await conn.fetchrow(
+                            "SELECT id FROM c33_messages WHERE conversation_id=$1 AND seq=$2",
+                            conversation_id,
+                            seq,
+                        )
+                        if sequence_owner and sequence_owner["id"] != mid:
+                            raise ReplicationConflictError(f"sequence_conflict:{conversation_id}:{seq}")
+                        if request_id is not None:
+                            request_owner = await conn.fetchrow(
+                                "SELECT id FROM c33_messages WHERE conversation_id=$1 AND request_id=$2 AND role=$3",
+                                conversation_id,
+                                request_id,
+                                role,
+                            )
+                            if request_owner and request_owner["id"] != mid:
+                                raise ReplicationConflictError(f"request_conflict:{conversation_id}:{request_id}:{role}")
                         await conn.execute(
                             "INSERT INTO c33_messages(id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at) "
-                            "VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::timestamptz) "
-                            "ON CONFLICT(id) DO NOTHING",
-                            mid, conversation_id, user_id, seq, role, content, metadata, request_id,
-                            item.get("created_at"),
+                            "VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::timestamptz)",
+                            mid, conversation_id, user_id, seq, role, content,
+                            json.dumps(metadata, ensure_ascii=False), request_id, item.get("created_at"),
                         )
                         await conn.execute(
                             "INSERT INTO c33_conversation_heads(conversation_id,next_seq) VALUES($1,$2) "
                             "ON CONFLICT(conversation_id) DO UPDATE SET next_seq=GREATEST(c33_conversation_heads.next_seq,EXCLUDED.next_seq)",
                             conversation_id, seq + 1,
                         )
-                        imported += 1
+                        accepted += 1
+                    except ReplicationConflictError:
+                        raise
                     except (KeyError, ValueError, TypeError, asyncpg.PostgresError):
                         continue
-        return imported
+        return accepted
 
     async def replication_pending_count(self) -> int:
         async with self.pool.acquire() as conn:
