@@ -1,0 +1,39 @@
+name: NEXO Progress Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: nexo-progress-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: NEXO quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - run: python -m compileall -q src tests
+      - run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Architecture surface check
+        run: |
+          test -f src/nexo/architecture.py
+          test -f src/nexo/observability.py
+          test -f src/nexo/sources.py
+          test -f src/nexo/memory_engine.py
+          test -f src/nexo/portable.py
+          echo "NEXO QUALITY GATE PASS"
