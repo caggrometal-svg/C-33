@@ -168,7 +168,7 @@ class ProviderCascade:
                     "kilo-auto/free",
                     None,
                     "kilo.ai",
-                    6500,
+                    9000,
                 ),
                 ProviderSpec(
                     "vireonix",
