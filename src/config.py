@@ -115,10 +115,6 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     environment = os.getenv("APP_ENV", "production").strip() or "production"
     role = os.getenv("C33_ROLE", "primary").strip().lower() or "primary"
     local_fallback_default = environment != "production"
-    if not os.getenv("PUBLIC_BASE_URL", "").strip():
-        legacy_public = os.getenv("IAC33_PUBLIC_BASE_URL", "").strip()
-        if legacy_public:
-            os.environ["PUBLIC_BASE_URL"] = legacy_public
     if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
         raise ConfigurationError("MODEL_BASE_URL must point to an approved zero-cost provider")
     return InfrastructureConfig(
@@ -136,12 +132,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
         # Never infer a peer from legacy or self-hosted URLs; replication is opt-in via explicit configuration.
         peer_url=os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None,
-        peer_replication_secret=(
-            os.getenv("PEER_REPLICATION_SECRET", "").strip()
-            or os.getenv("IAC33_REPLICATION_TOKEN", "").strip()
-            or os.getenv("IAC33_REPLICATION_TOKEN_COMPAT", "").strip()
-            or None
-        ),
+        peer_replication_secret=os.getenv("PEER_REPLICATION_SECRET", "").strip() or None,
         local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", local_fallback_default),
         require_provider_redundancy=_bool("REQUIRE_PROVIDER_REDUNDANCY", True),
     )
