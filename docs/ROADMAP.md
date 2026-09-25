@@ -25,16 +25,16 @@ C-33
 
 ## 2026-09-25 status — CERTIFIED
 
-**Certified code SHA:** `9fda344d97483df065e8099e3bb8a1f494665ff4`
+**Certified code SHA:** `031aa50d422a0d098b53200f63f34fbf3720194b`
 
-**C-33 Certification:** PASS (run 294)
+**C-33 Certification:** PASS (run 296)
 
-**NEXO Progress Gate:** PASS (run 149)
+**NEXO Progress Gate:** PASS (run 152)
 
-**Railway production:** SUCCESS (deployment `03ac0850-b29a-4d66-b32e-30d9e5e69468`)
+**Railway production:** SUCCESS (deployment `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3`)
 
 ### Closed in green
-C-33 connectivity, health, circuit breaker, observability, real provider cascade/failover logic, Web Engine live path, memory continuity, Model Hub, Tool Hub, bounded Orchestrator, contracts 23-40, and closure contracts 41-60.
+C-33 connectivity, health, circuit breaker, observability, real provider cascade/failover logic, Web Engine live path, memory continuity, Model Hub, Tool Hub, bounded Orchestrator, contracts 23-40, closure 41-60, and the 61-100 engineering acceptance extension.
 
 ### Current architecture boundary
 **ETAPA 40 — AUTO MODE remains the last numbered architecture stage; closure sections 41-60 are now explicitly certified green at the contractual/automated level.**
@@ -63,7 +63,7 @@ Present and tested in `src/nexo/phases_41_60.py` / `tests/test_phases_41_60.py`.
 ## Post-72 engineering extension 73-100
 Present and tested in `src/nexo/phases_61_100.py` / `tests/test_phases_61_100.py`. Sections 61-100 form a deterministic acceptance matrix covering governance, provenance, security, privacy, data integrity, replication safety, failover, stream reliability, API compatibility, CI enforcement, deployment/runtime attestation, rollback, disaster recovery, export/import compatibility, local-AI readiness, action guards, portability, multidevice, decentralization readiness, chaos/performance budgets, and final acceptance.
 
-**Matrix status:** 61-100 = 🟢 VERDE contractual/automated.
+**Matrix status:** 61-100 = 🟢 VERDE contractual/automated (40/40). C-33 Certification #296 = PASS.
 
 **No-red rule:** the 61-100 matrix contains only GREEN or BLUE states. Future capabilities requiring external runtime remain explicitly 🔵 BLUE; they are not disguised as failures or completed functionality.
 
