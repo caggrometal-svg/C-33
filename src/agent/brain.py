@@ -10,6 +10,7 @@ from typing import Any
 from agent.nexo import NexoCore
 from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, VerificationEngine
 from nexo.sources import SourceLedger
+from nexo.memory_engine import MemoryEngine
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
@@ -59,6 +60,9 @@ class Brain:
             raise ValueError("Prompt cannot be empty")
         history = await self.state.conversation_context(conversation_id, limit=12)
         memory_hits = await self.state.search_memory(user_id, prompt, limit=12)
+        ranked_memory = MemoryEngine.select(memory_hits, prompt, limit=12)
+        if ranked_memory:
+            memory_hits = [hit.entry for hit in ranked_memory]
         context: list[str] = []
         if memory_hits:
             context.append("Relevant prior memory:\n" + "\n".join(
