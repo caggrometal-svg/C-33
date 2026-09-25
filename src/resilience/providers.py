@@ -68,7 +68,12 @@ class DeadlineBudget:
         return max(0, int((self.deadline - time.monotonic()) * 1000))
 
     def provider_timeout_ms(self, configured_ms: int, reserve_ms: int = 250) -> int:
-        return max(250, min(configured_ms, self.remaining_ms - reserve_ms))
+        # Keep each provider attempt bounded so sequential failover still has
+        # room inside the global 18 s request budget. Production configuration
+        # may advertise a higher timeout, but a slow provider must not consume
+        # the entire request budget before peers are attempted.
+        per_provider_cap_ms = 5500
+        return max(250, min(configured_ms, per_provider_cap_ms, self.remaining_ms - reserve_ms))
 
 class ProviderCascade:
     """One bounded request across independent providers; never retries beyond the global deadline."""
