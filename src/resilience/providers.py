@@ -241,6 +241,26 @@ class ProviderCascade:
             reason = str(exc).split(":", 1)[0]
             raise GenerationFailure(reason, http_status=503, attempts=[]) from exc
 
+    async def _circuit_decision_with_grace(self, provider_id: str, budget: DeadlineBudget) -> Any:
+        """Allow a just-expired circuit to become half-open during the same bounded request."""
+        decision = await self.state.circuit_before_call(provider_id)
+        if decision.allowed or decision.cooldown_ms <= 0:
+            return decision
+        # Do not wait on long rate-limit/auth cooldowns, but do not let a short
+        # half-open lock cause an otherwise available fallback to be abandoned.
+        if decision.cooldown_ms < max(750, budget.remaining_ms - 750):
+            wait_ms = min(decision.cooldown_ms, 1500)
+            logger.info(
+                "[NEXO_DEBUG_PROVIDER] circuit_grace_wait provider=%s wait_ms=%s remaining_ms=%s",
+                provider_id,
+                wait_ms,
+                budget.remaining_ms,
+            )
+            await asyncio.sleep(wait_ms / 1000)
+            if budget.remaining_ms >= 750:
+                return await self.state.circuit_before_call(provider_id)
+        return decision
+
     async def complete(self, messages: list[dict[str, str]], budget: DeadlineBudget, *, probe: bool = False) -> GenerationResult:
         self.assert_ready_configuration()
         if probe:
@@ -251,7 +271,7 @@ class ProviderCascade:
         for index, spec in enumerate(self.providers):
             if budget.remaining_ms < 500:
                 break
-            decision = await self.state.circuit_before_call(spec.provider_id)
+            decision = await self._circuit_decision_with_grace(spec.provider_id, budget)
             if not decision.allowed:
                 attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms})
                 continue
@@ -279,51 +299,33 @@ class ProviderCascade:
         raise GenerationFailure(final_reason,http_status=502,attempts=attempts)
 
     async def _probe_parallel(self, messages: list[dict[str, str]], budget: DeadlineBudget) -> GenerationResult:
-        """Probe providers in configured order, bounded by the readiness deadline."""
+        """Probe all configured providers concurrently without poisoning runtime circuits."""
         attempts: list[dict[str, Any]] = []
-        for index, spec in enumerate(self.providers):
-            if budget.remaining_ms < 1000:
-                break
-            # Readiness probes are deliberately live: do not let a stale persisted
-            # circuit-open state prevent verification of the actual remote provider.
-            logger.info(
-                "[NEXO_DEBUG_READY] probe_bypass_circuit provider=%s reason=live_readiness_probe",
-                spec.provider_id,
-            )
-            started = time.monotonic()
+
+        async def probe_one(index: int, spec: ProviderSpec) -> tuple[str, int, ProviderSpec, int, str | None]:
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)
             if timeout_ms < 750:
-                break
+                return ("skip", index, spec, 0, "probe_budget_exhausted")
+            started = time.monotonic()
+            logger.info(
+                "[NEXO_DEBUG_READY] probe_attempt provider=%s model=%s timeout_ms=%s",
+                spec.provider_id,
+                spec.model,
+                timeout_ms,
+            )
             try:
-                text = await self._complete_one(spec, messages, timeout_ms, probe=True)
+                await self._complete_one(spec, messages, timeout_ms, probe=True)
                 latency = int((time.monotonic() - started) * 1000)
-                await self.state.circuit_success(
+                # Readiness is observational only: it must not open/close the
+                # production circuit based solely on a probe request.
+                logger.info(
+                    "[NEXO_DEBUG_READY] probe_success provider=%s latency_ms=%s circuit_unchanged=true",
                     spec.provider_id,
-                    model=spec.model,
-                    latency_ms=latency,
+                    latency,
                 )
-                return GenerationResult(
-                    text=text,
-                    meta=ProviderMeta(
-                        spec.provider_id,
-                        spec.model,
-                        index > 0,
-                        len(attempts) + 1,
-                        latency,
-                        "success_after_failover" if index > 0 else "success",
-                        "AI_READY" if index == 0 else "DEGRADED",
-                    ),
-                )
+                return ("ok", index, spec, latency, None)
             except GenerationFailure as exc:
                 latency = int((time.monotonic() - started) * 1000)
-                await self.state.circuit_failure(
-                    spec.provider_id,
-                    reason=exc.reason,
-                    status=exc.http_status,
-                    model=spec.model,
-                    latency_ms=latency,
-                    cooldown_ms=self._cooldown_ms(exc),
-                )
                 attempts.append({
                     "provider": spec.provider_id,
                     "status": exc.http_status,
@@ -331,6 +333,60 @@ class ProviderCascade:
                     "latency_ms": latency,
                     "retry_after_ms": exc.retry_after_ms,
                 })
+                logger.warning(
+                    "[NEXO_DEBUG_READY] probe_failure provider=%s reason=%s status=%s latency_ms=%s circuit_unchanged=true",
+                    spec.provider_id,
+                    exc.reason,
+                    exc.http_status,
+                    latency,
+                )
+                return ("fail", index, spec, latency, exc.reason)
+            except asyncio.CancelledError:
+                raise
+
+        tasks = [
+            asyncio.create_task(probe_one(index, spec))
+            for index, spec in enumerate(self.providers)
+        ]
+        pending = set(tasks)
+        try:
+            while pending and budget.remaining_ms >= 750:
+                wait_seconds = max(0.1, budget.remaining_ms / 1000)
+                done, pending = await asyncio.wait(
+                    pending,
+                    timeout=wait_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if not done:
+                    break
+                for task in done:
+                    result = task.result()
+                    status, index, spec, latency, reason = result
+                    if status == "ok":
+                        for other in pending:
+                            other.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return GenerationResult(
+                            text="C33_AI_READY_OK",
+                            meta=ProviderMeta(
+                                spec.provider_id,
+                                spec.model,
+                                index > 0,
+                                len(attempts) + 1,
+                                latency,
+                                "success_after_failover" if index > 0 else "success",
+                                "AI_READY" if index == 0 else "DEGRADED",
+                            ),
+                        )
+            if pending:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
 
         final_reason = self._final_reason(attempts)
         if final_reason == "rate_limited":
@@ -428,7 +484,7 @@ class ProviderCascade:
         attempts: list[dict[str,Any]]=[]
         for index,spec in enumerate(self.providers):
             if budget.remaining_ms<1000: break
-            decision=await self.state.circuit_before_call(spec.provider_id)
+            decision=await self._circuit_decision_with_grace(spec.provider_id, budget)
             if not decision.allowed:
                 attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms}); continue
             timeout_ms=budget.provider_timeout_ms(spec.timeout_ms); started=time.monotonic(); got_token=False
