@@ -15,12 +15,13 @@ jobs:
     steps:
       - name: Drain and certify replication backlog
         env:
-          BASE: https://iac33-backup-production.up.railway.app
+          BASE: ${{ vars.C33_BASE_URL }}
         run: |
           python - <<'PY'
           import json, os, time
           import urllib.request
           base = os.environ["BASE"]
+          if not base: raise SystemExit("C33_BASE_URL repository variable is required")
           deadline = time.time() + 180
           last = None
           while time.time() < deadline:
