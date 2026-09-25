@@ -146,5 +146,40 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertEqual(decision.reason, "local_capability_unavailable")
 
 
+    def test_tool_hub_exposes_memory_search_store_and_calculator(self):
+        from nexo.architecture import ToolHub
+
+        hub = ToolHub()
+
+        async def memory_search(query, user_id="anonymous", limit=8):
+            return [{"query": query, "user_id": user_id, "limit": limit}]
+
+        async def memory_store(content, *, user_id="anonymous"):
+            return {"stored": bool(content), "user_id": user_id}
+
+        def calculator(expression):
+            return 42
+
+        hub.register("memory_search", memory_search)
+        hub.register("memory_store", memory_store, mutates_state=True, risk="medium")
+        hub.register("calculator", calculator)
+
+        import asyncio
+        self.assertEqual(
+            asyncio.run(hub.invoke("memory_search", "nexo", user_id="u1")),
+            [{"query": "nexo", "user_id": "u1", "limit": 8}],
+        )
+        self.assertEqual(
+            asyncio.run(hub.invoke("calculator", "6*7")),
+            42,
+        )
+        with self.assertRaises(PermissionError):
+            asyncio.run(hub.invoke("memory_store", "dato", user_id="u1"))
+        self.assertEqual(
+            asyncio.run(hub.invoke("memory_store", "dato", user_id="u1", mutations_allowed=True)),
+            {"stored": True, "user_id": "u1"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
