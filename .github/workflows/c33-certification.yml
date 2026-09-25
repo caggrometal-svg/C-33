@@ -198,7 +198,7 @@ jobs:
 
   live:
     name: Railway live connectivity
-    needs: [backend, mobile, android]
+    needs: [backend, mobile]
     runs-on: ubuntu-latest
     env:
       C33_BASE_URL: ${{ vars.C33_BASE_URL }}
