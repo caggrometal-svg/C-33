@@ -138,7 +138,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     model_name = os.getenv("MODEL_NAME", "auto").strip() or "auto"
     environment = os.getenv("APP_ENV", "production").strip() or "production"
     role = os.getenv("C33_ROLE", "primary").strip().lower() or "primary"
-    public_base_url = _validate_public_https_url(
+    _validate_public_https_url(
         "PUBLIC_BASE_URL",
         os.getenv("PUBLIC_BASE_URL", ""),
         required_in_production=False,
