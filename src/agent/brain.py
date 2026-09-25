@@ -73,7 +73,15 @@ class Brain:
             ))
 
         sources: list[str] = []
+        selection = self.models.select_for_task(prompt)
         route = self.orchestrator.plan(prompt, memory_hits)
+        if selection.local_required:
+            route = type(route)(
+                use_memory=route.use_memory,
+                use_web=False,
+                verify=False,
+                reason="local+" + ("memory" if route.use_memory else "direct"),
+            )
         if route.use_web and budget.remaining_ms >= 4_000:
             try:
                 search_timeout = min(2.75, max(0.75, (budget.remaining_ms - 1_000) / 1000))
@@ -171,6 +179,29 @@ class Brain:
         )
         selection = self.models.select_for_task(prompt)
         preferred_provider = selection.selected_provider if not selection.local_required else None
+        if selection.local_required and selection.selected_provider is None:
+            response = LocalModel.complete(prompt, selection.reason)
+            return AgentResult(
+                response=response,
+                trace=[AgentTrace(1, "local", selection.reason)],
+                sources=sources,
+                source_records=source_records,
+                memory_hits=memory_hits,
+                model_meta={
+                    "provider_used": "local",
+                    "model": LocalModel.model_id,
+                    "failover_triggered": True,
+                    "attempts": 0,
+                    "latency_ms": 0,
+                    "final_reason": selection.reason,
+                    "system_status": "DEGRADED",
+                    "model_selection_intent": selection.intent,
+                    "model_selection_provider": None,
+                    "model_selection_reason": selection.reason,
+                },
+            )
+
+        preferred_provider = selection.selected_provider
         generation: GenerationResult = await self.models.complete(
             messages,
             budget,
