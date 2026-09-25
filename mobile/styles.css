@@ -291,6 +291,38 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
   box-shadow: 0 0 22px rgba(57,255,20,0.065);
 }
 
+
+.web-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(57,255,20,0.16);
+  font-size: 0.72rem;
+  line-height: 1.3;
+  white-space: normal;
+}
+
+.web-sources-title {
+  width: 100%;
+  color: #8fa397;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.64rem;
+}
+
+.web-sources a {
+  color: #9dff8c;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.web-sources a:hover,
+.web-sources a:focus-visible {
+  text-decoration: underline;
+}
+
 .message.error {
   align-self: flex-start;
   background: rgba(255,23,68,0.08);

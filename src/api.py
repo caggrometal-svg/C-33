@@ -94,6 +94,7 @@ class ResponseMeta(BaseModel):
     peer_status: str
     provider_attempts: int
     used_local_fallback: bool = False
+    web_searches: list[str] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     status: str
@@ -453,6 +454,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
                 "peer_status":await _peer_probe(),
                 "provider_attempts":len(generation_failure.attempts),
                 "used_local_fallback":True,
+                "web_searches":[],
             }
             sync = await _commit_turn(st, effective_payload, synthesis, {**meta,"remaining_ms":budget.remaining_ms})
             meta["memory_sync"] = sync
@@ -584,7 +586,14 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
 
         watcher = asyncio.create_task(cancel_on_disconnect())
         try:
-            logger.info("[NEXO_DEBUG_STREAM] provider_stream_begin request_id=%s remaining_ms=%s", request_id, budget.remaining_ms)
+            if sources:
+                yield "event: web\n"
+                yield "data: " + json.dumps({
+                    "status": "sources_ready",
+                    "count": len(sources),
+                    "sources": sources,
+                }, ensure_ascii=False) + "\n\n"
+            logger.info("[NEXO_DEBUG_STREAM] provider_stream_begin request_id=%s remaining_ms=%s sources=%s", request_id, budget.remaining_ms, len(sources))
             async for piece, meta in providers.stream(messages, budget):
                 if await request.is_disconnected():
                     return
@@ -624,6 +633,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 "conversation_id":payload.conversation_id,
                 "provider_attempts":stream_meta.attempts,
                 "used_local_fallback":False,
+                "web_searches":sources,
             }
             await st.append_message(
                 conversation_id=payload.conversation_id,
@@ -640,7 +650,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 stream_meta.provider_used,
             )
             yield "event: done\n"
-            yield "data: " + json.dumps({"_meta":final_meta}, ensure_ascii=False) + "\n\n"
+            yield "data: " + json.dumps({"_meta":{**final_meta, "web_searches":sources}}, ensure_ascii=False) + "\n\n"
         except GenerationFailure as exc:
             logger.warning("[NEXO_DEBUG_STREAM] generation_failure request_id=%s reason=%s http_status=%s attempts=%s pieces=%s remaining_ms=%s", request_id, exc.reason, exc.http_status, exc.attempts, len(pieces), budget.remaining_ms)
             if await request.is_disconnected():

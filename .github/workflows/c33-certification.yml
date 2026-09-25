@@ -69,20 +69,20 @@ jobs:
       - working-directory: mobile/android
         run: ./gradlew lint
 
-      - name: Assemble NEXO 0.1.5 APK
+      - name: Assemble NEXO 0.1.6 APK
         working-directory: mobile/android
         run: ./gradlew assembleDebug
 
-      - name: Verify NEXO 0.1.5 APK
+      - name: Verify NEXO 0.1.6 APK
         run: |
           test -f mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          echo "NEXO 0.1.5 APK ready:"
+          echo "NEXO 0.1.6 APK ready:"
           ls -lh mobile/android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload NEXO 0.1.5 APK
+      - name: Upload NEXO 0.1.6 APK
         uses: actions/upload-artifact@v4
         with:
-          name: NEXO-0.1.5-debug
+          name: NEXO-0.1.6-debug
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

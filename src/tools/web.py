@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import hashlib
+import ipaddress
 import logging
 import re
+import socket
 import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -221,16 +225,25 @@ class WebTool:
         return results
 
     async def fetch(self, url: str) -> WebPage:
-        """Fetch a URL, extract visible text, and build a short deterministic summary."""
-        self._validate_url(url)
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-            headers=self._headers,
-        ) as client:
-            response = await client.get(url)
+        """Fetch a public HTTP(S) URL and extract a short deterministic summary."""
+        current_url = url.strip()
+        for _ in range(4):
+            await self._validate_public_url(current_url)
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                follow_redirects=False,
+                headers=self._headers,
+            ) as client:
+                response = await client.get(current_url)
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location", "").strip()
+                if not location:
+                    raise RuntimeError("redirect_without_location")
+                current_url = urljoin(current_url, location)
+                continue
             response.raise_for_status()
             final_url = str(response.url)
+            await self._validate_public_url(final_url)
             content_type = response.headers.get("content-type", "")
             if (
                 "text/html" not in content_type
@@ -280,11 +293,31 @@ class WebTool:
         return result if result else clean[:max_chars].rstrip() + "…"
 
     @staticmethod
-    def _validate_url(url: str) -> None:
-        """Allow only normal HTTP(S) URLs."""
+    async def _validate_public_url(url: str) -> None:
+        """Reject non-HTTP URLs and private/internal destinations to prevent SSRF."""
         parsed = urlparse(url.strip())
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError(f"Unsupported URL: {url!r}")
+        if parsed.username or parsed.password:
+            raise ValueError("URLs with embedded credentials are not allowed")
+        host = parsed.hostname
+        if not host:
+            raise ValueError(f"URL host missing: {url!r}")
+        try:
+            ip_values = [ipaddress.ip_address(host)]
+        except ValueError:
+            infos = await asyncio.to_thread(socket.getaddrinfo, host, None, type=socket.SOCK_STREAM)
+            ip_values = [ipaddress.ip_address(info[4][0]) for info in infos]
+        if any(
+            not ip.is_global
+            or ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            for ip in ip_values
+        ):
+            raise ValueError("Private or non-public network destination blocked")
 
     @staticmethod
     def _clean_text(text: str) -> str:

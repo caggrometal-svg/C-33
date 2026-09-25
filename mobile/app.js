@@ -161,6 +161,35 @@ function addMessage(text, role) {
   return node;
 }
 
+function renderWebSources(messageNode, sources) {
+  if (!messageNode || !Array.isArray(sources) || !sources.length) return;
+  const unique = [...new Set(
+    sources
+      .map((url) => String(url || "").trim())
+      .filter((url) => /^https?:\/\//i.test(url))
+  )].slice(0, 5);
+  if (!unique.length) return;
+
+  const sourceBox = document.createElement("div");
+  sourceBox.className = "web-sources";
+  const heading = document.createElement("span");
+  heading.className = "web-sources-title";
+  heading.textContent = "Fuentes web";
+  sourceBox.appendChild(heading);
+
+  unique.forEach((url, index) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    let label = url;
+    try { label = new URL(url).hostname || url; } catch {}
+    link.textContent = "[" + (index + 1) + "] " + label;
+    sourceBox.appendChild(link);
+  });
+  messageNode.appendChild(sourceBox);
+}
+
 const CONNECTION_STATES = Object.freeze(["OFFLINE", "ONLINE", "READY", "STREAMING", "AI_READY", "DEGRADED"]);
 const CONNECTED_STATE = "AI_READY";
 const VALID_TRANSITIONS = Object.freeze({
@@ -489,6 +518,14 @@ async function streamChatWithFailover(options = {}) {
             });
           }
 
+          if (eventName === "web") {
+            recordDiagnostic("sse-web", {
+              backend: index,
+              role: backendRole(index),
+              data,
+            });
+          }
+
           if (eventName === "token" && data.text) {
             receivedToken = true;
             assistantNode.textContent += data.text;
@@ -530,6 +567,9 @@ async function streamChatWithFailover(options = {}) {
         assistantNode.classList.add("fallback");
         transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
         return { meta: finalMeta, fallback: true, client_latency_ms: Math.round(performance.now() - started) };
+      }
+      if (Array.isArray(finalMeta?.web_searches) && finalMeta.web_searches.length) {
+        renderWebSources(assistantNode, finalMeta.web_searches);
       }
       if (!receivedToken) {
         recordDiagnostic("stream-empty", {
@@ -714,8 +754,11 @@ form.addEventListener("submit", async (event) => {
         });
         const data = httpResult?.data;
         if (data?.synthesis) {
-          addMessage(data.synthesis, "assistant");
+          const assistantNode = addMessage(data.synthesis, "assistant");
           const usedLocalFallback = Boolean(data?._meta?.used_local_fallback);
+          if (!usedLocalFallback) {
+            renderWebSources(assistantNode, data?.web_searches || data?._meta?.web_searches || []);
+          }
           transition(
             usedLocalFallback ? "DEGRADED" : "AI_READY",
             usedLocalFallback
