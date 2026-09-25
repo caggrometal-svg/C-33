@@ -72,7 +72,7 @@ class DeadlineBudget:
         # room inside the global 18 s request budget. Production configuration
         # may advertise a higher timeout, but a slow provider must not consume
         # the entire request budget before peers are attempted.
-        per_provider_cap_ms = 6500
+        per_provider_cap_ms = 9000
         return max(250, min(configured_ms, per_provider_cap_ms, self.remaining_ms - reserve_ms))
 
 class ProviderCascade:
@@ -156,7 +156,7 @@ class ProviderCascade:
                         model,
                         None,
                         str(item.get("failure_domain", host)).strip() or host,
-                        max(500, int(item.get("timeout_ms", 6500))),
+                        max(500, int(item.get("timeout_ms", 9000))),
                         capabilities,
                     )
                 )
@@ -176,7 +176,7 @@ class ProviderCascade:
                     "auto",
                     None,
                     "vireonix.ai",
-                    6500,
+                    9000,
                 ),
             ]
 
