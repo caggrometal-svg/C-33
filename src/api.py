@@ -681,7 +681,44 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 }, ensure_ascii=False) + "\n\n"
             logger.info("[NEXO_DEBUG_STREAM] provider_stream_begin request_id=%s remaining_ms=%s sources=%s", request_id, budget.remaining_ms, len(sources))
             selection = b.models.select_for_task(payload.message)
-            preferred_provider = selection.selected_provider if not selection.local_required else None
+            if selection.local_required and selection.selected_provider is None:
+                fallback = b.local_fallback(payload.message, selection.reason)
+                fallback_meta = {
+                    "provider_used": "local",
+                    "model": "local-fallback",
+                    "failover_triggered": True,
+                    "latency_ms": int((time.monotonic() - started) * 1000),
+                    "final_reason": selection.reason,
+                    "system_status": "DEGRADED",
+                    "backend_role": config.role,
+                    "backend_url": _backend_url(),
+                    "request_id": request_id,
+                    "conversation_id": payload.conversation_id,
+                    "provider_attempts": 0,
+                    "used_local_fallback": True,
+                    "web_searches": sources,
+                    "web_sources_details": source_records,
+                    "verification_ok": False,
+                    "verification_warnings": [],
+                    "evidence_grade": None,
+                    "model_selection_intent": selection.intent,
+                    "model_selection_provider": None,
+                    "model_selection_reason": selection.reason,
+                }
+                await st.append_message(
+                    conversation_id=payload.conversation_id,
+                    user_id=payload.user_id,
+                    role="assistant",
+                    content=fallback,
+                    metadata={"provider_used": "local", "model": "local-fallback", "stream": True, "sources": sources, "meta": fallback_meta},
+                    request_id=request_id,
+                )
+                yield "event: fallback\n"
+                yield "data: " + json.dumps({"text": fallback, "_meta": fallback_meta}, ensure_ascii=False) + "\n\n"
+                yield "event: done\n"
+                yield "data: " + json.dumps({"_meta": fallback_meta}, ensure_ascii=False) + "\n\n"
+                return
+            preferred_provider = selection.selected_provider
             async for piece, meta in providers.stream(messages, budget, preferred_provider=preferred_provider):
                 if await request.is_disconnected():
                     return
