@@ -165,7 +165,7 @@ class PrivacyByDefaultPolicy:
     def decide(self, prompt: str) -> PrivacyByDefaultDecision:
         lower = (prompt or "").strip().lower()
         private = any(marker in lower for marker in LocalRemoteCooperationPolicy.PRIVATE_MARKERS)
-        current = any(marker in lower for marker in ("actual", "actualmente", "hoy", "ahora", "latest", "current", "precio", "noticia"))
+        current = any(marker in lower for marker in ("actual", "actualmente", "hoy", "ahora", "latest", "current", "precio", "noticia", "internet", "web", "busca", "buscar", "investiga", "investigar", "research", "fuentes", "verifica", "verificar", "consulta", "consultar"))
         if private:
             return PrivacyByDefaultDecision(
                 local_required=True,
