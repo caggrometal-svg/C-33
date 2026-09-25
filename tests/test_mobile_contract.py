@@ -20,6 +20,9 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('stream-http-recovery', app)
         self.assertIn('stream-http-recovery-failed', app)
         self.assertIn('requestWithFailover(API_PATH', app)
+        self.assertIn('client-local-fallback', app)
+        self.assertIn('client-deterministic-fallback', app)
+        self.assertIn('used_local_fallback', app)
 
     def test_frontend_uses_single_public_runtime_config(self):
         self.assertTrue((ROOT / "mobile" / "public" / "config.js").exists())
