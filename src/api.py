@@ -247,6 +247,8 @@ async def _peer_probe() -> str:
         if body.get("service") != "C-33":
             return "OFFLINE"
         peer_role = str(body.get("role", "")).strip().lower()
+        if config.role in {"primary", "backup"} and peer_role not in {"primary", "backup"}:
+            return "OFFLINE"
         if config.role in {"primary", "backup"} and peer_role == config.role:
             return "OFFLINE"
         return "ONLINE"
