@@ -109,7 +109,7 @@ class ProviderCascade:
         free_allowlist = {
             "api.kilo.ai": "kilo-auto/free",
             "vireonix.ai": "auto",
-            "text.pollinations.ai": "openai",
+            "text.pollinations.ai": "openai-fast",
         }
         specs: list[ProviderSpec] = []
 
@@ -136,7 +136,7 @@ class ProviderCascade:
                 elif host == "vireonix.ai":
                     model = "auto"
                 elif host == "text.pollinations.ai":
-                    model = "openai"
+                    model = "openai-fast"
                 raw_capabilities = item.get("capabilities", ("chat", "stream"))
                 if isinstance(raw_capabilities, str):
                     capabilities = tuple(dict.fromkeys(
@@ -174,7 +174,7 @@ class ProviderCascade:
                     9000,
                 ),
                 ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 9000),
-                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai", None, "pollinations.ai", 9000),
+                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 8000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
