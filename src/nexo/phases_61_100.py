@@ -119,6 +119,10 @@ class Nexo61To100:
         return tuple(section.number for section in cls.SECTIONS if section.state is ClosureState.GREEN)
 
     @classmethod
+    def closed_capabilities(cls) -> tuple[str, ...]:
+        return cls.CLOSED_CAPABILITIES
+
+    @classmethod
     def blue_capabilities(cls) -> tuple[str, ...]:
         return cls.BLUE_CAPABILITIES
 
