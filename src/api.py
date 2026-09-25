@@ -26,6 +26,8 @@ if _SRC_DIR not in __import__("sys").path:
 
 from agent.brain import AgentResult, Brain
 from nexo.observability import RequestMetrics, normalize_request_id
+from nexo.evidence import grade_evidence
+from nexo.http_security import apply_security_headers
 from config import InfrastructureConfig, load_infrastructure_config
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError
 from resilience.state import PostgresState
@@ -250,6 +252,8 @@ async def observability_middleware(request: Request, call_next):
         int((time.monotonic() - started) * 1000),
     )
     response.headers["X-Request-ID"] = request_id
+    apply_security_headers(response)
+    response.headers.setdefault("Cache-Control", "no-store")
     return response
 
 @app.get("/health")
@@ -527,6 +531,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         "used_local_fallback":False,
         "verification_ok":verification.ok,
         "verification_warnings":list(verification.warnings),
+        "evidence_grade":grade_evidence(result.response, result.sources).grade,
         "web_sources_details":list(result.source_records),
     }
     sync = await _commit_turn(st, effective_payload, result.response, {**meta,"remaining_ms":budget.remaining_ms})
@@ -681,6 +686,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 "web_sources_details":source_records,
                 "verification_ok":verification.ok,
                 "verification_warnings":list(verification.warnings),
+                "evidence_grade":grade_evidence(final, sources).grade,
             }
             await st.append_message(
                 conversation_id=payload.conversation_id,
