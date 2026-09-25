@@ -134,10 +134,8 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 21000, 1000),
         client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 22000, 1000),
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
-        peer_url=(
-            os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/")
-            or ("https://c33-backend.onrender.com" if role == "primary" else "https://iac33-backup-production.up.railway.app")
-        ) or None,
+        # Never infer a peer from legacy or self-hosted URLs; replication is opt-in via explicit configuration.
+        peer_url=os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None,
         peer_replication_secret=(
             os.getenv("PEER_REPLICATION_SECRET", "").strip()
             or os.getenv("IAC33_REPLICATION_TOKEN", "").strip()
