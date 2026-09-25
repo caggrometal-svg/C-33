@@ -176,7 +176,7 @@ class ProviderCascade:
                     "auto",
                     None,
                     "vireonix.ai",
-                    4500,
+                    6500,
                 ),
             ]
 
