@@ -5,6 +5,8 @@ import unittest
 from nexo.phases_23_30 import KnowledgeState, Research, ExportBundle
 from nexo.phases_41_60 import (
     AutonomyPlan,
+    Closure41To60,
+    ClosureStatus,
     ControlledAutonomyPolicy,
     DegradedMode,
     DegradedModePolicy,
@@ -109,6 +111,69 @@ class Phase41To60Tests(unittest.TestCase):
         )
         self.assertTrue(bundle.verify())
 
+
+
+    def test_closure_matrix_covers_every_section_without_red(self):
+        self.assertTrue(Closure41To60.validate())
+        self.assertEqual(Closure41To60.green_sections(), tuple(range(41, 61)))
+        self.assertTrue(all(
+            row["status"] in {ClosureStatus.GREEN.value, ClosureStatus.BLUE.value}
+            for row in Closure41To60.status_matrix()
+        ))
+        self.assertNotIn("RED", {row["status"] for row in Closure41To60.status_matrix()})
+        self.assertEqual(len(Closure41To60.blue_capabilities()), 5)
+
+    def test_degraded_mode_covers_provider_memory_and_web_failures(self):
+        memory = DegradedModePolicy.decide(memory_available=False)
+        self.assertEqual(memory.mode, DegradedMode.MEMORY_DEGRADED)
+        failover = DegradedModePolicy.decide(failover_used=True)
+        self.assertEqual(failover.mode, DegradedMode.PROVIDER_FAILOVER)
+        offline = DegradedModePolicy.decide(provider_available=False, local_available=True)
+        self.assertEqual(offline.mode, DegradedMode.OFFLINE_LOCAL)
+
+    def test_research_object_rejects_invalid_evidence(self):
+        research = Research(
+            question="q",
+            sources=("javascript:bad",),
+            findings=("dato",),
+            confidence=1.5,
+            summary="s",
+        )
+        self.assertFalse(ResearchObject.from_research(research).validate())
+
+    def test_autonomy_budget_rejects_invalid_limits(self):
+        with self.assertRaises(ValueError):
+            ControlledAutonomyPolicy.plan(("x",), max_steps=0)
+        with self.assertRaises(ValueError):
+            ControlledAutonomyPolicy.plan(tuple(str(i) for i in range(9)), max_steps=9)
+
+    def test_permissions_default_to_deny_unknown_tools(self):
+        matrix = PermissionMatrix()
+        self.assertFalse(matrix.allows("UNKNOWN", "read"))
+        self.assertFalse(matrix.allows("WEB", "write"))
+
+    def test_trust_record_carries_reconstructable_evidence(self):
+        record = TrustArchitecture.record(
+            request_id="r42",
+            action="research",
+            reason="source_check",
+            knowledge_state=KnowledgeState.CAN_RESEARCH,
+            source_count=1,
+            tool="web",
+            source="https://example.com",
+            model="remote",
+        )
+        self.assertTrue(record.reconstructable())
+        self.assertEqual(record.source_count, 1)
+
+    def test_master_plan_and_success_criteria_are_closed(self):
+        self.assertTrue(MasterTestPlan.validate())
+        self.assertEqual(MasterTestPlan.names(), (
+            "conversation", "memory", "internet", "sources",
+            "provider", "sse", "reconnection", "web_failure",
+            "primary_ai_failure", "internet_failure", "export", "import",
+        ))
+        self.assertTrue(SuccessCriteria().validate_observed(SuccessCriteria().required_capabilities))
 
 if __name__ == "__main__":
     unittest.main()
