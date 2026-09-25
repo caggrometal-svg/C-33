@@ -47,6 +47,7 @@ READINESS_PROBE_TIMEOUT_SECONDS = 3.0
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_GENERATION = 30
 _RATE_LIMIT_AI_READY = 12
+_MAX_REPLICATION_BODY_BYTES = 2_000_000
 _rate_limit_lock = asyncio.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 
@@ -824,6 +825,8 @@ async def replicate(request: Request) -> JSONResponse:
     if version != "1":
         raise HTTPException(status_code=400, detail="unsupported_replication_version")
     raw = await request.body()
+    if len(raw) > _MAX_REPLICATION_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="replication_payload_too_large")
     supplied = request.headers.get("X-C33-Replication-Signature", "")
     expected = hmac.new(config.peer_replication_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
     if not supplied or not hmac.compare_digest(supplied, expected):

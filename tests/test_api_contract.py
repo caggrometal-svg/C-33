@@ -48,6 +48,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('model_config = {"populate_by_name": True}', self.api)
         self.assertIn('web_searches: list[str]', self.api)
 
+    def test_replication_payload_is_bounded_before_json_parse(self):
+        self.assertIn('_MAX_REPLICATION_BODY_BYTES = 2_000_000', self.api)
+        self.assertIn('if len(raw) > _MAX_REPLICATION_BODY_BYTES:', self.api)
+        self.assertIn('replication_payload_too_large', self.api)
+
     def test_replication_requires_explicit_protocol_version(self):
         self.assertIn('request.headers.get("X-C33-Replication-Version", "").strip()', self.api)
         self.assertIn('if version != "1":', self.api)
