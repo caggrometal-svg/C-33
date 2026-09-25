@@ -1,16 +1,24 @@
 const C = window.C33_CONFIG || {};
-const BACKEND_URLS = Array.from(new Set((C.BACKEND_URLS || []).map((url) => url.replace(/\/$/, ""))));
+const DEFAULT_BACKEND_URLS = ["https://iac33-backup-production.up.railway.app"];
+const configuredBackendUrls = Array.isArray(C.BACKEND_URLS)
+  ? C.BACKEND_URLS.map((url) => String(url || "").trim().replace(/\/$/, "")).filter(Boolean)
+  : [];
+const USING_BUNDLED_BACKEND_FALLBACK = configuredBackendUrls.length === 0;
+const BACKEND_URLS = Array.from(new Set(
+  configuredBackendUrls.length ? configuredBackendUrls : DEFAULT_BACKEND_URLS
+));
 const API_PATH = C.CHAT_PATH || "/v1/chat";
 const HEALTH_PATH = C.HEALTH_PATH || "/health";
 const READY_PATH = C.READY_PATH || "/ready";
 const AI_READY_PATH = C.AI_READY_PATH || "/v1/ai-ready";
 const CLIENT_TIMEOUT_MS = Number(C.CLIENT_TIMEOUT_MS || 22000);
 const PROBE_TIMEOUT_MS = Number(C.PROBE_TIMEOUT_MS || 2500);
-const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V3";
+const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V4";
 const USER_ID_KEY = "C33_USER_ID";
 const CONVERSATION_KEY = "C33_CONVERSATION_ID";
 const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V1";
 const MAX_DIAGNOSTICS = 40;
+const CONFIG_VERSION = String(C.CONFIG_VERSION || "bundled-fallback");
 
 function truncateDiagnostic(value, max = 4000) {
   const text = value == null ? "" : String(value);
@@ -33,6 +41,15 @@ function recordDiagnostic(stage, details = {}) {
   try { console.info("[C33][DIAG]", entry); } catch {}
   window.C33_LAST_DIAGNOSTIC = entry;
   return entry;
+}
+
+if (USING_BUNDLED_BACKEND_FALLBACK) {
+  recordDiagnostic("config-fallback", {
+    reason: "runtime_config_missing_or_empty",
+    config_version: CONFIG_VERSION,
+    backend_count: BACKEND_URLS.length,
+    backend: BACKEND_URLS[0] || "",
+  });
 }
 
 function responseDiagnostic(response, startedAt) {
@@ -222,12 +239,15 @@ async function fetchBounded(url, options = {}, timeoutMs = CLIENT_TIMEOUT_MS) {
   finally { clearTimeout(timer); }
 }
 
-async function probeBackend(index) {
+async function probeBackend(index, { ignoreCircuit = false } = {}) {
   const base = BACKEND_URLS[index];
   if (!base) return { backend: index, state: "OFFLINE", reason: "not_configured" };
-  if (circuitOpen(index)) {
+  if (circuitOpen(index) && !ignoreCircuit) {
     recordDiagnostic("circuit_open", { backend: index, role: backendRole(index), url: base, reason: "circuit_open" });
     return { backend: index, state: "OFFLINE", reason: "circuit_open" };
+  }
+  if (circuitOpen(index) && ignoreCircuit) {
+    recordDiagnostic("circuit_half_open_probe", { backend: index, role: backendRole(index), url: base, reason: "live_probe_overrides_circuit" });
   }
 
   const deadlineAt = Date.now() + Math.max(PROBE_TIMEOUT_MS + 3000, 5500);
@@ -328,7 +348,7 @@ async function refreshConnection() {
   if (refreshInFlight) return refreshInFlight;
   refreshInFlight = (async () => {
     if (activeControllers.size > 0) return [];
-    const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i)));
+    const results = await Promise.all(BACKEND_URLS.map((_, i) => probeBackend(i, { ignoreCircuit: true })));
     const best = results.reduce((a, b) => stateRank(b.state) > stateRank(a.state) ? b : a, results[0] || { state: "OFFLINE", backend: 0 });
     if (best?.state === "AI_READY") transition(best.backend === 0 ? "AI_READY" : "DEGRADED", "NEXO · " + (best.backend === 0 ? "Conectado · IA lista" : "Degradado · respaldo activo") + " · " + backendRole(best.backend));
     else if (best?.state === "DEGRADED") transition("DEGRADED", "NEXO · Degradado · respaldo activo");
@@ -341,9 +361,19 @@ async function refreshConnection() {
 }
 
 function orderedBackends() {
-  return BACKEND_URLS
+  const available = BACKEND_URLS
     .map((_, index) => index)
     .filter((index) => !circuitOpen(index));
+  if (available.length) return available;
+
+  const halfOpen = BACKEND_URLS
+    .map((_, index) => ({
+      index,
+      openUntil: Number(circuits[index]?.openUntil || 0),
+    }))
+    .sort((a, b) => a.openUntil - b.openUntil);
+
+  return halfOpen.length ? [halfOpen[0].index] : [];
 }
 
 async function streamChatWithFailover(options = {}) {
