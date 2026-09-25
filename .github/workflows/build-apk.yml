@@ -4,6 +4,9 @@ name: NEXO Android APK
 on:
   push:
     branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/build-apk.yml"
   pull_request:
     branches: [main]
   workflow_dispatch:
