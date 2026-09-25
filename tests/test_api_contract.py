@@ -78,6 +78,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('if len(raw) > _MAX_REPLICATION_BODY_BYTES:', self.api)
         self.assertIn('replication_payload_too_large', self.api)
 
+    def test_replication_returns_exact_receipt(self):
+        self.assertIn('"accepted_ids"', self.api)
+        self.assertIn('"receipt_sha256"', self.api)
+        self.assertIn('hashlib.sha256(raw).hexdigest()', self.api)
+
     def test_replication_requires_explicit_protocol_version(self):
         self.assertIn('request.headers.get("X-C33-Replication-Version", "").strip()', self.api)
         self.assertIn('if version != "1":', self.api)
