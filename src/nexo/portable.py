@@ -20,7 +20,7 @@ class PortableBundleError(ValueError):
     pass
 
 
-def export_bundle(*, user_id: str, messages: list[dict[str, Any]], memory: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def export_bundle(*, user_id: str, messages: list[dict[str, Any]], memory: list[dict[str, Any]] | None = None, preferences: dict[str, Any] | None = None, configuration: dict[str, Any] | None = None, identity_id: str | None = None, device_id: str | None = None) -> dict[str, Any]:
     uid = user_id.strip()
     if not uid:
         raise PortableBundleError("user_id_required")
@@ -32,6 +32,10 @@ def export_bundle(*, user_id: str, messages: list[dict[str, Any]], memory: list[
         "user_id": uid,
         "messages": clean_messages,
         "memory": clean_memory,
+        "preferences": dict(preferences or {}),
+        "configuration": dict(configuration or {}),
+        "identity_id": identity_id.strip() if isinstance(identity_id, str) and identity_id.strip() else None,
+        "device_id": device_id.strip() if isinstance(device_id, str) and device_id.strip() else None,
     }
     bundle["sha256"] = bundle_digest(bundle)
     return bundle
@@ -48,6 +52,12 @@ def validate_bundle(bundle: Any) -> tuple[bool, tuple[str, ...]]:
     for key in ("messages", "memory"):
         if not isinstance(bundle.get(key, []), list):
             warnings.append(f"{key}_must_be_list")
+    for key in ("preferences", "configuration"):
+        if key in bundle and not isinstance(bundle[key], dict):
+            warnings.append(f"{key}_must_be_object")
+    for key in ("identity_id", "device_id"):
+        if key in bundle and bundle[key] is not None and not isinstance(bundle[key], str):
+            warnings.append(f"{key}_must_be_string")
     digest = bundle.get("sha256")
     if not isinstance(digest, str) or digest != bundle_digest(bundle):
         warnings.append("checksum_mismatch")
