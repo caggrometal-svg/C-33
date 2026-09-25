@@ -58,7 +58,16 @@ Present and tested in `src/nexo/phases_23_30.py` / `tests/test_phases_23_30.py`.
 Present and tested in `src/nexo/phases_31_40.py` / `tests/test_phases_31_40.py`. **ETAPA 40 — AUTO MODE is integrated into Brain.**
 
 ## Closure sections 41-60
-Present and tested in `src/nexo/phases_41_60.py` / `tests/test_phases_41_60.py`. They define the acceptance architecture but do not imply that every future external capability is already connected.
+Present and tested in `src/nexo/phases_41_60.py` / `tests/test_phases_41_60.py`. The 20 closure sections are explicitly certified green at the contractual/automated level.
+
+## Post-72 engineering extension 73-100
+Present and tested in `src/nexo/phases_61_100.py` / `tests/test_phases_61_100.py`. Sections 61-100 form a deterministic acceptance matrix covering governance, provenance, security, privacy, data integrity, replication safety, failover, stream reliability, API compatibility, CI enforcement, deployment/runtime attestation, rollback, disaster recovery, export/import compatibility, local-AI readiness, action guards, portability, multidevice, decentralization readiness, chaos/performance budgets, and final acceptance.
+
+**Matrix status:** 61-100 = 🟢 VERDE contractual/automated.
+
+**No-red rule:** the 61-100 matrix contains only GREEN or BLUE states. Future capabilities requiring external runtime remain explicitly 🔵 BLUE; they are not disguised as failures or completed functionality.
+
+See `docs/NEXO-CLOSURE-61-100.md`.
 
 ## Mission
 NEXO remains replaceable, inspectable and portable while the user retains control.
