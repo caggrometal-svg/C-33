@@ -89,6 +89,11 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
         self.assertLessEqual(budget.remaining_ms, 5000)
 
+    async def test_provider_timeout_is_capped_for_failover_budget(self):
+        budget = DeadlineBudget(18000)
+        self.assertEqual(budget.provider_timeout_ms(9000), 5500)
+        self.assertLessEqual(budget.provider_timeout_ms(9000), budget.remaining_ms)
+
     async def test_dns_failure_fails_over(self):
         state = FakeState()
         specs = [
