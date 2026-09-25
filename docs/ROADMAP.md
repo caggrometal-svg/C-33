@@ -75,23 +75,23 @@ Runtime verification: Railway production deployment `b953c1c0-f64d-4dfd-a1f4-d14
 
 Phase-21 contract is therefore closed for the implemented scope. Remaining Model Hub work is explicitly later: cost/latency-aware optimization and a real local provider.
 
-### Tool Hub — PHASE 22 — IN PROGRESS
+### Tool Hub — PHASE 22 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
 
 Tool registry and permissions are active. Web search/fetch, UTC time and calculation are registered. Durable memory_search and state-mutating memory_store are now exposed through the same ToolHub boundary, with mutation permission enforced by the tool policy.
 
-Next: document search, explicit schemas for tool inputs/outputs, and bounded external/API actions.
+Next: runtime certification, document search, explicit schemas for tool inputs/outputs, and bounded external/API actions.
 
-### Orchestrator — PARTIAL
+### Orchestrator — PHASE 23 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
 
-A turn-level planner exists.
+Turn-level planning remains in NexoOrchestrator. Phase-23 adds a bounded execution contract with a hard step budget; no unrestricted agent loop is introduced.
 
-Next: explicit CHAT/RESEARCH/MEMORY/ACTION/LOCAL/AUTO modes, multi-step bounded tool use and stop conditions.
+Next: wire the bounded executor into the live request path.
 
-### Verification — PARTIAL
+### Verification — PHASE 25-26 — IMPLEMENTED / PENDING RUNTIME CERTIFICATION
 
-Source and citation structure is validated.
+VerificationPolicy now defines research-required detection and the three explicit knowledge states: SÉ, PUEDO INVESTIGAR and NO PUEDO DETERMINARLO.
 
-Next: contradiction handling, multi-source verification and explicit SÉ / PUEDO INVESTIGAR / NO PUEDO DETERMINARLO states.
+Next: integrate contradiction handling and multi-source verification into the live turn.
 
 ### Local AI — PENDING
 
@@ -134,3 +134,15 @@ A block is advanced only when:
 ## Mission
 
 The objective is not an impressive APK. The objective is a replaceable, inspectable, portable system in which the user retains control.
+
+## Phase 24-30 contracts (2026-09-25)
+
+- **24 — Request cycle:** canonical 12-step request lifecycle is defined and tested.
+- **25 — Verification Engine:** research-required detection and verification state contract are defined and tested.
+- **26 — Knowing when NEXO does not know:** explicit SÉ / PUEDO INVESTIGAR / NO PUEDO DETERMINARLO states are defined and tested.
+- **27 — Cache:** TTL cache contract is defined and tested.
+- **28 — Security:** secret redaction contract is defined and tested.
+- **29 — Privacy:** context minimization contract is defined and tested.
+- **30 — Export / data freedom:** checksummed export bundle contract is defined and tested.
+
+Implementation is in src/nexo/phases_23_30.py with regression coverage in tests/test_phases_23_30.py. These phases are not called production-certified until their current main SHA has a terminal Railway SUCCESS and the live path is observed.
