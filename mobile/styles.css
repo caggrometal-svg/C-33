@@ -531,7 +531,6 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
   transform: translateX(-50%) translateZ(0);
   padding: 10px 12px max(12px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(2,4,3,0), rgba(2,4,3,0.78) 26%, rgba(2,4,3,0.98) 72%);
-  transform: translateX(-50%) translateZ(0);
 }
 
 .composer-shell {
@@ -659,7 +658,7 @@ textarea:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
   .settings-button span { display: none; }
   .settings-button { padding-left: 10px; padding-right: 10px; }
 }
-\n
+
 /* Matrix rain background */
 .app {
   isolation: isolate;
