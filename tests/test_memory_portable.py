@@ -32,6 +32,15 @@ class PortableBundleTests(unittest.TestCase):
         self.assertEqual(bundle["schema_version"], SCHEMA_VERSION)
         self.assertTrue(validate_bundle(bundle)[0])
 
+
+    def test_checksum_detects_tampering(self):
+        from nexo.portable import export_bundle, validate_bundle
+        bundle = export_bundle(user_id='u1', messages=[], memory=[])
+        bundle['memory'].append({'tampered': True})
+        ok, warnings = validate_bundle(bundle)
+        self.assertFalse(ok)
+        self.assertIn('checksum_mismatch', warnings)
+
     def test_invalid_bundle_is_rejected(self):
         from nexo.portable import validate_bundle
 
