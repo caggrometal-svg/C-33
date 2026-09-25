@@ -60,9 +60,11 @@ The current ranking is deterministic textual matching. It is not yet the semanti
 
 ## Model and tools
 
-`ModelHub` gives the provider layer a provider-neutral surface. `ToolHub` registers tools with explicit network, mutation and risk policy.
+`ModelHub` gives the provider layer a provider-neutral surface. `ProviderSpec` can expose capability tags such as `fast`, `reasoning`, `economical`, `local` and `private`. `ModelSelectionPolicy` classifies the request and chooses a configured capability deterministically.
 
-The currently integrated tools include web search/fetch, calculation and UTC time. The full planned tool catalog is not complete.
+The selected remote provider is passed into `ProviderCascade` for both HTTP generation and SSE. The remaining configured providers remain available as failover peers. When a request requires local/private handling and no local capability exists, NEXO uses its explicit deterministic local fallback instead of silently sending the request to a remote provider.
+
+`ToolHub` registers tools with explicit network, mutation and risk policy. The currently integrated tools include web search/fetch, calculation and UTC time. The full planned tool catalog is not complete.
 
 ## Local capability
 
