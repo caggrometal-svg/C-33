@@ -141,6 +141,14 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(PostgresState._metadata_dict({"topic": "Hola"}), {"topic": "Hola"})
         self.assertEqual(PostgresState._metadata_dict('{"topic":"Hola"}'), {"topic": "Hola"})
 
+    async def test_provider_transport_rejects_ambient_proxy_and_redirects(self):
+        source = __import__("inspect").getsource(ProviderCascade._complete_one)
+        stream_source = __import__("inspect").getsource(ProviderCascade.stream)
+        self.assertIn("follow_redirects=False", source)
+        self.assertIn("trust_env=False", source)
+        self.assertIn("follow_redirects=False", stream_source)
+        self.assertIn("trust_env=False", stream_source)
+
     async def test_deadline_is_bounded_by_client(self):
         budget = DeadlineBudget(26000, int(__import__("time").time()*1000)+5000)
         self.assertLessEqual(budget.remaining_ms, 5000)
