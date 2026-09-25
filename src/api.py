@@ -820,6 +820,9 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
 async def replicate(request: Request) -> JSONResponse:
     if not config.peer_replication_secret:
         raise HTTPException(status_code=404, detail="replication_disabled")
+    version = request.headers.get("X-C33-Replication-Version", "").strip()
+    if version != "1":
+        raise HTTPException(status_code=400, detail="unsupported_replication_version")
     raw = await request.body()
     supplied = request.headers.get("X-C33-Replication-Signature", "")
     expected = hmac.new(config.peer_replication_secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()

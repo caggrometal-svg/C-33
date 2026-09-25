@@ -48,6 +48,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('model_config = {"populate_by_name": True}', self.api)
         self.assertIn('web_searches: list[str]', self.api)
 
+    def test_replication_requires_explicit_protocol_version(self):
+        self.assertIn('request.headers.get("X-C33-Replication-Version", "").strip()', self.api)
+        self.assertIn('if version != "1":', self.api)
+        self.assertIn('unsupported_replication_version', self.api)
+
     def test_capabilities_endpoint_is_safe_metadata(self):
         self.assertIn('@app.get("/v1/capabilities")', self.api)
         self.assertIn('safe capability metadata', self.api)
