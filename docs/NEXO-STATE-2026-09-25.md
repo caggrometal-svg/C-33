@@ -2,11 +2,11 @@
 
 Fuente de verdad: rama `main`.
 
-SHA certificado de código: `9fda344d97483df065e8099e3bb8a1f494665ff4`.
+SHA certificado de código: `031aa50d422a0d098b53200f63f34fbf3720194b`.
 
-C-33 Certification run 294: **PASS**.
-NEXO Progress Gate run 149: **PASS**.
-Railway production deployment `03ac0850-b29a-4d66-b32e-30d9e5e69468`: **SUCCESS**.
+C-33 Certification run 296: **PASS**.
+NEXO Progress Gate run 152: **PASS**.
+Railway production deployment `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3`: **SUCCESS**.
 
 ## Evidencia live
 El gate certificó 200 en:
@@ -19,7 +19,7 @@ C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memo
 
 Multidevice/descentralización runtime permanece **AZUL** hasta recuperar el peer: la certificación live observó `peer_status=OFFLINE` y `replication_pending=393`. Esto no invalida el cierre contractual 41-60; es capacidad externa posterior pendiente de recuperación.
 
-Extensión 61-100: **🟢 VERDE contractual/automatizada (40/40)**. El gate 61-100 valida cobertura completa y ausencia de estados RED; las capacidades externas aún no realizadas continúan AZULES.
+Extensión 61-100: 🟢 **VERDE contractual/automatizada (40/40)**. C-33 Certification #296: PASS. **🟢 VERDE contractual/automatizada (40/40)**. El gate 61-100 valida cobertura completa y ausencia de estados RED; las capacidades externas aún no realizadas continúan AZULES.
 
 ## Siguiente etapa
 IA local real, export/import UX completo, acciones externas, portabilidad completa y descentralización completa son trabajo posterior. No bloquean el cierre actual de ETAPA 40.
