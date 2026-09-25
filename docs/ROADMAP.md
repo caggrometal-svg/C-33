@@ -25,19 +25,19 @@ C-33
 
 ## 2026-09-25 status — CERTIFIED
 
-**Certified code SHA:** `55a2d62213a37563398d65d9585329eff87c11d2`
+**Certified code SHA:** `9fda344d97483df065e8099e3bb8a1f494665ff4`
 
-**C-33 Certification:** PASS (run 292)
+**C-33 Certification:** PASS (run 294)
 
-**NEXO Progress Gate:** PASS (run 146)
+**NEXO Progress Gate:** PASS (run 149)
 
-**Railway production:** SUCCESS (deployment `f86bc410-25f2-44f9-a349-84f56b2265f9`)
+**Railway production:** SUCCESS (deployment `03ac0850-b29a-4d66-b32e-30d9e5e69468`)
 
 ### Closed in green
 C-33 connectivity, health, circuit breaker, observability, real provider cascade/failover logic, Web Engine live path, memory continuity, Model Hub, Tool Hub, bounded Orchestrator, contracts 23-40, and closure contracts 41-60.
 
 ### Current architecture boundary
-**ETAPA 40 — AUTO MODE is the current certified engineering boundary.**
+**ETAPA 40 — AUTO MODE remains the last numbered architecture stage; closure sections 41-60 are now explicitly certified green at the contractual/automated level.**
 
 The repository contains deterministic contracts for later capabilities, but future capability is not mislabeled as completed functionality.
 
