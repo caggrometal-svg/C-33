@@ -169,7 +169,13 @@ class Brain:
             personality_mode=personality_mode,
             budget=budget,
         )
-        generation: GenerationResult = await self.models.complete(messages, budget)
+        selection = self.models.select_for_task(prompt)
+        preferred_provider = selection.selected_provider if not selection.local_required else None
+        generation: GenerationResult = await self.models.complete(
+            messages,
+            budget,
+            preferred_provider=preferred_provider,
+        )
         return AgentResult(
             response=generation.text,
             trace=[AgentTrace(1, "generate", generation.meta.final_reason)],
@@ -184,6 +190,9 @@ class Brain:
                 "latency_ms": generation.meta.latency_ms,
                 "final_reason": generation.meta.final_reason,
                 "system_status": generation.meta.system_status,
+                "model_selection_intent": selection.intent,
+                "model_selection_provider": selection.selected_provider,
+                "model_selection_reason": selection.reason,
             },
         )
 
