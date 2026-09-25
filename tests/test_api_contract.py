@@ -60,6 +60,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('"verification_ok":False', self.api)
         self.assertIn('"evidence_grade":None', self.api)
 
+    def test_sse_data_frames_end_with_blank_line(self):
+        stream = self.api.split('async def ai_stream', 1)[1]
+        data_lines = [line.strip() for line in stream.splitlines() if 'yield "data: "' in line]
+        self.assertGreaterEqual(len(data_lines), 6)
+        self.assertTrue(data_lines)
+        self.assertTrue(any(' + "\\n\\n"' in line for line in data_lines))
+
     def test_stream_crash_emits_structured_error_event(self):
         self.assertIn('yield "event: error\\n"', self.api)
         self.assertIn('"reason": "stream_crash"', self.api)
