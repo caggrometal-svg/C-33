@@ -32,6 +32,9 @@ class ToolPolicyTests(unittest.TestCase):
             hub.register('web', lambda: 'ok', network=True, risk='medium')
 
             with self.assertRaises(PermissionError):
+                await hub.invoke('web')
+
+            with self.assertRaises(PermissionError):
                 await hub.invoke('web', network_allowed=False)
 
             self.assertEqual(
