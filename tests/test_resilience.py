@@ -35,6 +35,12 @@ class FaultTransport(httpx.AsyncBaseTransport):
             raise httpx.ConnectError("SSL: CERTIFICATE_VERIFY_FAILED", request=request)
         if behavior == "connection":
             raise httpx.ConnectError("connection reset by peer", request=request)
+        if behavior == "400":
+            return httpx.Response(
+                400,
+                json={"error": {"message": "model_request_invalid"}},
+                request=request,
+            )
         if behavior == "429":
             return httpx.Response(429, headers={"retry-after":"2"}, request=request)
         if behavior == "502":
@@ -223,6 +229,22 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result.text, "C33_OK")
         self.assertIn(result.meta.provider_used, {"a","b"})
+
+    async def test_400_fails_over_to_second_provider(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=FaultTransport({"a.test": "400", "b.test": "ok"}),
+        )
+        result = await cascade.complete([{"role": "user", "content": "x"}], DeadlineBudget(5000))
+        self.assertEqual(result.meta.provider_used, "b")
+        self.assertEqual(state.failures[0][1], "bad_request:model_request_invalid")
 
     async def test_429_fails_over_and_opens_first_circuit(self):
         state = FakeState()
