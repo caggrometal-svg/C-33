@@ -287,6 +287,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.meta.provider_used, "b")
         self.assertTrue(result.meta.failover_triggered)
         self.assertEqual(state.failures[0][1], "rate_limited")
+        self.assertEqual(state.state["a"], "OPEN")
 
     async def test_timeout_fails_over(self):
         state = FakeState()
