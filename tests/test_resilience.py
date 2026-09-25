@@ -341,6 +341,34 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             "provider_auth_failure",
         )
 
+    def test_provider_capabilities_are_loaded_from_environment(self):
+        previous = {key: os.environ.get(key) for key in (
+            "AI_PROVIDERS_JSON",
+            "AI_PROVIDER_ORDER",
+            "AI_PROVIDER_A_CAPABILITIES",
+            "AI_PROVIDER_B_CAPABILITIES",
+            "MODEL_BASE_URL",
+            "MODEL_NAME",
+        )}
+        try:
+            for key in previous:
+                os.environ.pop(key, None)
+            os.environ["MODEL_BASE_URL"] = "https://alpha.test/v1"
+            os.environ["MODEL_NAME"] = "m-alpha"
+            os.environ["AI_PROVIDER_ORDER"] = "alpha,beta"
+            os.environ["AI_PROVIDER_A_CAPABILITIES"] = "chat,stream,fast"
+            os.environ["AI_PROVIDER_B_CAPABILITIES"] = "chat,stream,reasoning"
+            cascade = ProviderCascade.from_environment(FakeState())
+            by_id = {spec.provider_id: spec for spec in cascade.providers}
+            self.assertEqual(by_id["alpha"].capabilities, ("chat", "stream", "fast"))
+            self.assertEqual(by_id["beta"].capabilities, ("chat", "stream", "reasoning"))
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_default_provider_contract_is_two_independent_bounded_providers(self):
         previous = {key: os.environ.get(key) for key in (
             "AI_PROVIDERS_JSON",
