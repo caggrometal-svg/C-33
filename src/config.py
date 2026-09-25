@@ -54,6 +54,29 @@ def _database_schema() -> str:
         raise ConfigurationError("C33_DB_SCHEMA must be a valid PostgreSQL schema identifier")
     return value
 
+def _validate_public_https_url(name: str, value: str | None, *, required_in_production: bool = False) -> str | None:
+    clean = (value or "").strip().rstrip("/")
+    if not clean:
+        if required_in_production and os.getenv("APP_ENV", "production").strip().lower() == "production":
+            raise ConfigurationError(f"{name} is required in production")
+        return None
+    parsed = urlparse(clean)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ConfigurationError(f"{name} must be an HTTPS URL")
+    if parsed.username or parsed.password:
+        raise ConfigurationError(f"{name} must not contain embedded credentials")
+    host = parsed.hostname.lower()
+    try:
+        literal = __import__("ipaddress").ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None and not literal.is_global:
+        raise ConfigurationError(f"{name} must not target a private or special-use IP")
+    if host in {"localhost", "localhost.localdomain"} or host.endswith(".local") or host.endswith(".internal"):
+        raise ConfigurationError(f"{name} must not target a local or internal hostname")
+    return clean
+
+
 def _optional_database_url() -> str | None:
     value = os.getenv("DATABASE_URL", "").strip()
     if not value:
@@ -114,6 +137,16 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     model_name = os.getenv("MODEL_NAME", "auto").strip() or "auto"
     environment = os.getenv("APP_ENV", "production").strip() or "production"
     role = os.getenv("C33_ROLE", "primary").strip().lower() or "primary"
+    public_base_url = _validate_public_https_url(
+        "PUBLIC_BASE_URL",
+        os.getenv("PUBLIC_BASE_URL", ""),
+        required_in_production=False,
+    )
+    peer_url = _validate_public_https_url(
+        "PEER_BACKEND_URL",
+        os.getenv("PEER_BACKEND_URL", ""),
+        required_in_production=False,
+    )
     local_fallback_default = environment != "production"
     if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
         raise ConfigurationError("MODEL_BASE_URL must point to an approved zero-cost provider")
@@ -131,7 +164,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 22000, 1000),
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
         # Never infer a peer from legacy or self-hosted URLs; replication is opt-in via explicit configuration.
-        peer_url=os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None,
+        peer_url=peer_url,
         peer_replication_secret=os.getenv("PEER_REPLICATION_SECRET", "").strip() or None,
         local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", local_fallback_default),
         require_provider_redundancy=_bool("REQUIRE_PROVIDER_REDUNDANCY", True),
