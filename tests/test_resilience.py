@@ -310,6 +310,12 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(ctx.exception.http_status, 429)
 
+    def test_retry_after_is_bounded(self):
+        self.assertEqual(ProviderCascade._parse_retry_after_ms("2"), 2000)
+        self.assertEqual(ProviderCascade._parse_retry_after_ms("99999"), 600000)
+        self.assertEqual(ProviderCascade._parse_retry_after_ms("-5"), 0)
+        self.assertEqual(ProviderCascade._parse_retry_after_ms("n/a"), 0)
+
     def test_final_reason_prioritizes_transport_failures(self):
         from resilience.providers import ProviderCascade
 

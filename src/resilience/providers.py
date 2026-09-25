@@ -455,8 +455,7 @@ class ProviderCascade:
         status=response.status_code
         if status==429:
             raw=response.headers.get("retry-after","")
-            try: retry_after_ms=max(0,int(float(raw)*1000))
-            except ValueError: retry_after_ms=0
+            retry_after_ms=self._parse_retry_after_ms(raw)
             raise GenerationFailure("rate_limited",http_status=429,attempts=[],retry_after_ms=retry_after_ms)
         if status in {401,403}: raise GenerationFailure("auth_error",http_status=status,attempts=[])
         if status==400:
@@ -501,8 +500,7 @@ class ProviderCascade:
                         if response.status_code!=200:
                             if response.status_code==429:
                                 raw=response.headers.get("retry-after","0")
-                                try: retry_after_ms=int(float(raw)*1000)
-                                except ValueError: retry_after_ms=0
+                                retry_after_ms=self._parse_retry_after_ms(raw)
                                 raise GenerationFailure("rate_limited",http_status=429,attempts=[],retry_after_ms=retry_after_ms)
                             if response.status_code in {401,403}: raise GenerationFailure("auth_error",http_status=response.status_code,attempts=[])
                             if response.status_code==408: raise GenerationFailure("timeout",http_status=408,attempts=[])
@@ -589,6 +587,13 @@ class ProviderCascade:
         return min(5*60_000,int(30_000*(1+random.random()*0.25)))
 
     @staticmethod
+    @staticmethod
+    def _parse_retry_after_ms(raw: str | None) -> int:
+        try:
+            return min(600_000, max(0, int(float(raw or "0") * 1000)))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
     def _max_retry_after(attempts:list[dict[str,Any]]) -> int:
         return max((int(a.get("retry_after_ms",0)) for a in attempts),default=0)
 
