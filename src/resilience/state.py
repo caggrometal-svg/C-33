@@ -27,6 +27,27 @@ class ReplicationConflictError(ValueError):
     """Raised when a replicated message collides with different durable state."""
 
 
+def _normalize_created_at(value: Any) -> str:
+    """Canonicalize imported timestamps before they reach asyncpg."""
+    if value is None or value == "":
+        return datetime.now(timezone.utc).isoformat()
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        raw = value.strip()
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("created_at_invalid") from exc
+    else:
+        raise ValueError("created_at_must_be_string")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
 SCHEMA = r'''
 CREATE TABLE IF NOT EXISTS c33_conversation_heads (
     conversation_id TEXT PRIMARY KEY,
@@ -501,14 +522,27 @@ class PostgresState:
             async with conn.transaction():
                 for item in messages[:100]:
                     try:
+                        if not isinstance(item, dict):
+                            raise ValueError("message_must_be_object")
                         mid = uuid.UUID(str(item["id"]))
-                        conversation_id = str(item["conversation_id"]).strip()
-                        user_id = str(item["user_id"]).strip()
-                        seq = int(item["seq"])
-                        role = str(item["role"])
+                        conversation_id = item.get("conversation_id")
+                        user_id = item.get("user_id")
+                        role = item.get("role")
+                        content = item.get("content")
+                        if not isinstance(conversation_id, str):
+                            raise ValueError("conversation_id_must_be_string")
+                        if not isinstance(user_id, str):
+                            raise ValueError("user_id_must_be_string")
+                        if not isinstance(role, str):
+                            raise ValueError("role_must_be_string")
+                        if not isinstance(content, str):
+                            raise ValueError("content_must_be_string")
+                        conversation_id = conversation_id.strip()
+                        user_id = user_id.strip()
+                        role = role.strip()
+                        content = content.strip()
                         if role not in {"user", "assistant", "system"}:
                             raise ValueError(f"invalid_role:{role}")
-                        content = str(item["content"]).strip()
                         if not conversation_id:
                             raise ValueError("conversation_id_required")
                         if not user_id:
@@ -521,10 +555,30 @@ class PostgresState:
                             raise ValueError("content_required")
                         if len(content) > _MAX_REPLICATION_TEXT_CHARS:
                             raise ValueError("content_too_long")
+                        seq_raw = item.get("seq")
+                        if isinstance(seq_raw, bool):
+                            raise ValueError("seq_must_be_integer")
+                        try:
+                            seq = int(seq_raw)
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError("seq_must_be_integer") from exc
                         if seq < 1:
                             raise ValueError("seq_must_be_positive")
-                        metadata = dict(item.get("metadata") or {})
+                        raw_metadata = item.get("metadata")
+                        if raw_metadata is None:
+                            metadata: dict[str, Any] = {}
+                        elif isinstance(raw_metadata, dict):
+                            metadata = dict(raw_metadata)
+                        else:
+                            raise ValueError("metadata_must_be_object")
                         request_id = item.get("request_id")
+                        if request_id is not None:
+                            if not isinstance(request_id, str):
+                                raise ValueError("request_id_must_be_string")
+                            request_id = request_id.strip() or None
+                            if request_id and len(request_id) > 128:
+                                raise ValueError("request_id_too_long")
+                        created_at = _normalize_created_at(item.get("created_at"))
                         existing = await conn.fetchrow(
                             "SELECT conversation_id,user_id,seq,role,content,metadata,request_id "
                             "FROM c33_messages WHERE id=$1",
@@ -564,7 +618,7 @@ class PostgresState:
                             "INSERT INTO c33_messages(id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at) "
                             "VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::timestamptz)",
                             mid, conversation_id, user_id, seq, role, content,
-                            json.dumps(metadata, ensure_ascii=False), request_id, item.get("created_at"),
+                            json.dumps(metadata, ensure_ascii=False), request_id, created_at,
                         )
                         if enqueue_replication:
                             await conn.execute(
