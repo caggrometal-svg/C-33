@@ -75,6 +75,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let refreshInFlight = null;", app)
         self.assertRegex(app, r"if \(refreshInFlight\) return refreshInFlight;")
 
+    def test_web_sources_are_rendered_as_safe_dom_links(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('document.createElement("a")', app)
+        self.assertIn("link.textContent =", app)
+        self.assertIn('link.rel = "noopener noreferrer"', app)
+        self.assertIn('messageNode.appendChild(sourceBox)', app)
+        self.assertNotIn("sourceBox.innerHTML", app)
+
     def test_frontend_consumes_structured_sse_error_events(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn('if (eventName === "error")', app)
