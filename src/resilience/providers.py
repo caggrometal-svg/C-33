@@ -149,6 +149,11 @@ class ProviderCascade:
 
             provider_a_url = os.getenv("AI_PROVIDER_A_BASE_URL", "").strip().rstrip("/")
             provider_b_url = os.getenv("AI_PROVIDER_B_BASE_URL", "").strip().rstrip("/")
+            configured_order = [
+                x.strip()
+                for x in os.getenv("AI_PROVIDER_ORDER", "").split(",")
+                if x.strip()
+            ]
 
             if provider_a_url:
                 a_base = provider_a_url
@@ -159,7 +164,11 @@ class ProviderCascade:
             elif configured_base:
                 a_base = configured_base
                 a_host = urlparse(a_base).netloc.lower()
-                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or ("vireonix" if "vireonix.ai" in a_host else ("blockrun" if "blockrun.ai" in a_host else a_host or "provider_a"))
+                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or (
+                    configured_order[0]
+                    if configured_order
+                    else ("vireonix" if "vireonix.ai" in a_host else ("blockrun" if "blockrun.ai" in a_host else a_host or "provider_a"))
+                )
                 a_model = configured_model or ("auto" if "vireonix.ai" in a_host else "nvidia/nemotron-3.5-lightning")
                 a_key = configured_key_env
             else:
@@ -193,7 +202,11 @@ class ProviderCascade:
 
             specs.append(
                 ProviderSpec(
-                    os.getenv("AI_PROVIDER_B_ID", "").strip() or ("blockrun" if "blockrun.ai" in b_host else ("vireonix" if "vireonix.ai" in b_host else "provider_b")),
+                    os.getenv("AI_PROVIDER_B_ID", "").strip() or (
+                        configured_order[1]
+                        if len(configured_order) > 1
+                        else ("blockrun" if "blockrun.ai" in b_host else ("vireonix" if "vireonix.ai" in b_host else "provider_b"))
+                    ),
                     b_base,
                     b_model,
                     os.getenv("AI_PROVIDER_B_KEY_ENV", "").strip() or None,
