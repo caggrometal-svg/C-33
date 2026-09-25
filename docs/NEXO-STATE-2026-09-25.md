@@ -12,7 +12,7 @@ Railway production deployment `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3`: **SUCCESS*
 El gate certificó 200 en:
 `/health`, `/ready`, `/v1/chat`, Web/IA remota, `/v1/ai-ready`, segundo turno de conversación, `/v1/ai/stream`, `/status` y `/v1/ai/diagnostics`.
 
-La topología de inferencia queda restringida a Kilo Auto Free → Vireonix, ambos sin pago requerido; cada intento permanece acotado a 4.5 s.
+La topología de inferencia queda restringida a Kilo Auto Free → Vireonix, ambos sin pago requerido. El modo FREE queda bloqueado por código y cualquier API key o proveedor no aprobado es rechazado. Cada intento permanece acotado a 4.5 s.
 
 ## Estado de trabajo
 C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memoria base, Model Hub, Tool Hub, Orchestrator, contratos 23-40 y cierre contractual 41-60: **VERDE en el alcance certificado actual**.
