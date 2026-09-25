@@ -33,6 +33,21 @@ class MemoryEngineTests(unittest.TestCase):
 
         self.assertEqual(MemoryEngine.select([Entry()], "red", limit=3), [])
 
+    def test_memory_store_uses_complete_tokens(self):
+        import asyncio
+        import tempfile
+        from pathlib import Path
+        from memory.store import MemoryStore
+
+        async def exercise():
+            with tempfile.TemporaryDirectory() as tmp:
+                store = MemoryStore(str(Path(tmp) / "memory.json"), short_term_limit=1, long_term_limit=4)
+                await store.save("credencial del usuario", "dato antiguo")
+                hits = await store.search_context("red", limit=4)
+                self.assertEqual(hits, [])
+
+        asyncio.run(exercise())
+
     def test_equal_relevance_prefers_newer_memory(self):
         from nexo.memory_engine import MemoryEngine
 

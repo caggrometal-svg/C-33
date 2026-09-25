@@ -7,7 +7,9 @@ import hmac
 import json
 import os
 import random
+import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -209,9 +211,20 @@ class PostgresState:
             )
         return [{"role": str(r["role"]), "content": str(r["content"])} for r in reversed(rows)]
 
+    @staticmethod
+    def _memory_tokens(value: str) -> list[str]:
+        normalized = unicodedata.normalize("NFKD", value or "")
+        normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
+        return re.findall(r"[\w]{3,}", normalized)
+
+    @classmethod
+    def _memory_match_score(cls, query: str, content: str) -> int:
+        query_tokens = set(cls._memory_tokens(query)[:8])
+        content_tokens = set(cls._memory_tokens(content))
+        return sum(1 for token in query_tokens if token in content_tokens)
+
     async def search_memory(self, user_id: str, query: str, limit: int = 16) -> list[MemoryEntry]:
         """Retrieve recent/relevant memory from durable Postgres storage."""
-        tokens = [x.lower() for x in query.split() if len(x) >= 3][:8]
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT id::text,created_at,user_id,role,content,metadata,conversation_id "
@@ -219,14 +232,13 @@ class PostgresState:
                 user_id,
             )
         recent = list(reversed(rows[:8]))
-        scored: list[tuple[int, Any]] = []
-        for row in rows[8:]:
-            hay = str(row["content"]).lower()
-            score = sum(1 for token in tokens if token in hay)
+        scored: list[tuple[int, Any, int, Any]] = []
+        for index, row in enumerate(rows[8:], start=8):
+            score = self._memory_match_score(query, str(row["content"]))
             if score:
-                scored.append((score, row))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        selected = recent + [row for _, row in scored[: max(0, limit - len(recent))]]
+                scored.append((score, row["created_at"].astimezone(timezone.utc), index, row))
+        scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+        selected = recent + [row for _, _, _, row in scored[: max(0, limit - len(recent))]]
         result: list[MemoryEntry] = []
         for row in selected[:limit]:
             metadata = self._metadata_dict(row["metadata"])

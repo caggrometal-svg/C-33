@@ -148,7 +148,8 @@ class MemoryStore:
                     ]
                 )
             )
-            score = sum(1 for token in tokens if token in haystack)
+            haystack_tokens = set(re.findall(r"[\w]{3,}", haystack))
+            score = sum(1 for token in tokens if token in haystack_tokens)
             if score > 0:
                 scored.append((score, index, entry))
 

@@ -58,6 +58,11 @@ class FaultTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, json={"choices":[{"message":{"content":"C33_OK"}}]}, request=request)
 
 class ResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_durable_memory_match_uses_complete_tokens(self):
+        self.assertEqual(PostgresState._memory_match_score("red", "credencial"), 0)
+        self.assertEqual(PostgresState._memory_match_score("conexion", "conexión remota"), 1)
+        self.assertEqual(PostgresState._memory_match_score("backend red", "backend conexión"), 1)
+
     async def test_metadata_helper_handles_postgres_json_values(self):
         self.assertEqual(PostgresState._metadata_dict(None), {})
         self.assertEqual(PostgresState._metadata_dict({"topic": "Hola"}), {"topic": "Hola"})
