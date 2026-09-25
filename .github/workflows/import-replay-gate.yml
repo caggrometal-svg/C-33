@@ -1,0 +1,68 @@
+name: C-33 Import Replay Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    name: Portable import replay gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Export and re-import a real bundle
+        env:
+          BASE: https://iac33-backup-production.up.railway.app
+        run: |
+          python - <<'PY'
+          import copy, hashlib, json, os, uuid, urllib.request
+          base = os.environ["BASE"]
+          def post(path, body):
+              req = urllib.request.Request(
+                  base + path,
+                  data=json.dumps(body, ensure_ascii=False).encode(),
+                  headers={"Content-Type":"application/json"},
+                  method="POST",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status, json.load(r)
+              except Exception as exc:
+                  if hasattr(exc, "read"):
+                      raw = exc.read().decode("utf-8", "replace")
+                      print("HTTP ERROR", path, raw, flush=True)
+                  raise
+          status, exported = post("/v1/export", {
+              "user_id": "github-certification",
+              "preferences": {"import_gate": True},
+              "configuration": {"backend_urls": [base]},
+          })
+          assert status == 200, exported
+          bundle = exported["bundle"]
+          imported_user = "github-import-replay-" + uuid.uuid4().hex[:12]
+          imported_conversation = "import-replay-" + uuid.uuid4().hex
+          messages = []
+          for message in bundle.get("messages", []):
+              copy_message = copy.deepcopy(message)
+              copy_message["id"] = str(uuid.uuid4())
+              copy_message["user_id"] = imported_user
+              copy_message["conversation_id"] = imported_conversation
+              messages.append(copy_message)
+          migrated = dict(bundle)
+          migrated["user_id"] = imported_user
+          migrated["identity_id"] = imported_user
+          migrated["device_id"] = "github-import-replay-device"
+          migrated["messages"] = messages
+          digest_input = dict(migrated)
+          digest_input.pop("sha256", None)
+          raw = json.dumps(digest_input, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+          migrated["sha256"] = hashlib.sha256(raw).hexdigest()
+          status, imported = post("/v1/import", {"bundle": migrated, "replicate": False})
+          print(json.dumps({"exported": len(bundle.get("messages", [])), "import": imported}, sort_keys=True))
+          assert status == 200, imported
+          assert int(imported.get("accepted", -1)) == len(messages)
+          print("C33_IMPORT_REPLAY_GREEN")
+          PY
