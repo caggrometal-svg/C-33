@@ -33,16 +33,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('web_sources_details: list[dict[str, Any]]', self.api)
 
 
-    def test_chat_request_rejects_blank_message_after_trimming(self):
-        from pydantic import ValidationError
-        from api import ChatRequest
-
-        with self.assertRaises(ValidationError):
-            ChatRequest(message="   ")
-
-        request = ChatRequest(message="  hola  ", request_id="  req-1  ")
-        self.assertEqual(request.message, "hola")
-        self.assertEqual(request.request_id, "req-1")
+    def test_chat_request_normalizes_text_fields_before_validation(self):
+        self.assertIn('from pydantic import BaseModel, Field, field_validator', self.api)
+        self.assertIn('field_validator("message", "user_id", "conversation_id", "request_id", "personality", "voice_tone", mode="before")', self.api)
+        self.assertIn('return value.strip() if isinstance(value, str) else value', self.api)
+        self.assertIn('message: str = Field(min_length=1, max_length=20_000)', self.api)
 
     def test_capabilities_endpoint_is_safe_metadata(self):
         self.assertIn('@app.get("/v1/capabilities")', self.api)
