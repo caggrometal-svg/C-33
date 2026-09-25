@@ -220,7 +220,7 @@ class ProviderCascade:
 
         active_specs = [spec for spec in specs if spec.provider_id not in disabled]
         active_order = [provider_id for provider_id in order if provider_id not in disabled]
-        if len(active_specs) < 2:
+        if os.getenv("REQUIRE_PROVIDER_REDUNDANCY", "true").strip().lower() == "true" and len(active_specs) < 2:
             raise ProviderConfigurationError("provider_redundancy_not_configured")
 
         return cls(state, active_specs, active_order)
