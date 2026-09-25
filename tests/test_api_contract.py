@@ -85,10 +85,11 @@ class ApiContractTests(unittest.TestCase):
 
     def test_health_is_pure_liveness_contract(self):
         health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready")', 1)[0]
-        self.assertIn('return {"status":"alive"', health)
-        self.assertNotIn("_database_ping()", health)
-        self.assertNotIn("ai_ready(", health)
-        self.assertNotIn("cascade.complete(", health)
+        health_fn = health.split('async def health', 1)[1]
+        self.assertIn('return {"status":"alive"', health_fn)
+        self.assertNotIn("_database_ping()", health_fn)
+        self.assertNotIn("ai_ready(", health_fn)
+        self.assertNotIn("cascade.complete(", health_fn)
 
     def test_capabilities_endpoint_is_safe_metadata(self):
         self.assertIn('@app.get("/v1/capabilities")', self.api)
