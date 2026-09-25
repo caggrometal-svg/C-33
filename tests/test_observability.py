@@ -12,6 +12,14 @@ class ObservabilityTests(unittest.TestCase):
         self.assertNotEqual(value, "bad id with spaces")
         self.assertTrue(value)
 
+    def test_request_id_length_is_bounded(self):
+        from nexo.observability import normalize_request_id
+
+        oversized = "a" * 129
+        normalized = normalize_request_id(oversized)
+        self.assertNotEqual(normalized, oversized)
+        self.assertLessEqual(len(normalized), 128)
+
     def test_metrics_are_aggregate_and_bounded(self):
         from nexo.observability import RequestMetrics
         metrics = RequestMetrics(max_paths=2)
