@@ -291,7 +291,8 @@ class AutoModeRouter:
             authorized_action=authorized_action,
         )
         payload = {
-            "mode": decision.mode.value,
+            "mode": NexoMode.AUTO.value,
+            "selected_mode": decision.mode.value,
             "reason": decision.reason,
             "confidence": decision.confidence,
         }
