@@ -54,7 +54,7 @@ class MemoryEngine:
                     "user_position", "tags", "central_arguments",
                 )
             ))
-            haystack_tokens = set(re.findall(r"[\\w]{3,}", haystack))
+            haystack_tokens = set(re.findall(r"[\w]{3,}", haystack))
             score = sum(1 for token in tokens if token in haystack_tokens)
             if score:
                 ranked.append(
