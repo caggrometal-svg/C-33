@@ -404,7 +404,7 @@ async function streamChatWithFailover(options = {}) {
           "Cache-Control": "no-cache",
           "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
           "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
-          "X-C33-Allow-Local-Fallback": "false",
+          "X-C33-Allow-Local-Fallback": "true",
         },
         signal: controller.signal,
         cache: "no-store",
@@ -665,7 +665,7 @@ form.addEventListener("submit", async (event) => {
     });
   } catch (error) {
     if (error?.code === "REMOTE_EXHAUSTED") {
-      addMessage("NEXO no pudo conectarse a la IA remota. No se activó respaldo local.", "error");
+      addMessage("NEXO no pudo conectarse a la IA remota. Diagnóstico: " + (error.message || "REMOTE_EXHAUSTED"), "error");
       transition("OFFLINE", "NEXO · IA remota no disponible");
     } else {
       addMessage(error.message || "Error de conexión.", "error");
