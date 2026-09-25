@@ -26,6 +26,7 @@ class ProviderSpec:
     api_key_env: str | None
     failure_domain: str
     timeout_ms: int
+    capabilities: tuple[str, ...] = ("chat", "stream")
 
 @dataclass(frozen=True, slots=True)
 class ProviderMeta:
@@ -119,7 +120,28 @@ class ProviderCascade:
                     model = "kilo-auto/free"
                     pid = "kilo"
                 api_key_env = str(item.get("api_key_env", "")).strip() or None
-                specs.append(ProviderSpec(pid, base, model, api_key_env, str(item.get("failure_domain", parsed.netloc.lower())).strip(), max(500, int(item.get("timeout_ms", 7000)))))
+                raw_capabilities = item.get("capabilities", ("chat", "stream"))
+                if isinstance(raw_capabilities, str):
+                    capabilities = tuple(dict.fromkeys(x.strip().lower() for x in raw_capabilities.split(",") if x.strip()))
+                elif isinstance(raw_capabilities, (list, tuple)):
+                    capabilities = tuple(dict.fromkeys(str(x).strip().lower() for x in raw_capabilities if str(x).strip()))
+                else:
+                    capabilities = ("chat", "stream")
+                if "chat" not in capabilities:
+                    capabilities = ("chat",) + capabilities
+                if "stream" not in capabilities:
+                    capabilities = capabilities + ("stream",)
+                specs.append(
+                    ProviderSpec(
+                        pid,
+                        base,
+                        model,
+                        api_key_env,
+                        str(item.get("failure_domain", parsed.netloc.lower())).strip(),
+                        max(500, int(item.get("timeout_ms", 7000))),
+                        capabilities,
+                    )
+                )
         else:
             configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
             configured_model = os.getenv("MODEL_NAME", "").strip()
@@ -147,7 +169,16 @@ class ProviderCascade:
                 a_model = "auto"
                 a_key = None
 
-            specs = [ProviderSpec(a_id, a_base, a_model, a_key, a_host, 6_000)]
+            a_capabilities = tuple(dict.fromkeys(
+                x.strip().lower()
+                for x in os.getenv("AI_PROVIDER_A_CAPABILITIES", "chat,stream").split(",")
+                if x.strip()
+            ))
+            if "chat" not in a_capabilities:
+                a_capabilities = ("chat",) + a_capabilities
+            if "stream" not in a_capabilities:
+                a_capabilities = a_capabilities + ("stream",)
+            specs = [ProviderSpec(a_id, a_base, a_model, a_key, a_host, 6_000, a_capabilities)]
 
             if provider_b_url:
                 b_base = provider_b_url
@@ -168,6 +199,11 @@ class ProviderCascade:
                     os.getenv("AI_PROVIDER_B_KEY_ENV", "").strip() or None,
                     b_host,
                     4_000,
+                    tuple(dict.fromkeys(
+                        x.strip().lower()
+                        for x in os.getenv("AI_PROVIDER_B_CAPABILITIES", "chat,stream").split(",")
+                        if x.strip()
+                    )) or ("chat", "stream"),
                 )
             )
         provider_ids = {spec.provider_id for spec in specs}
