@@ -285,6 +285,27 @@ async def ready() -> ReadyResponse:
 async def api_time() -> dict[str, str]:
     return {"utc":"%.3f" % time.time(),"deployment_sha":_deployment_sha()}
 
+@app.get("/v1/capabilities")
+async def capabilities() -> dict[str, Any]:
+    """Expose safe capability metadata without credentials or user content."""
+    tool_list = brain.tools.describe() if brain else []
+    model_list = [
+        {
+            "provider_id": profile.provider_id,
+            "model_id": profile.model_id,
+            "failure_domain": profile.failure_domain,
+            "capabilities": list(profile.capabilities),
+        }
+        for profile in (brain.models.profiles if brain else ())
+    ]
+    return {
+        "status": "ok",
+        "service": "C-33",
+        "tools": list(tool_list),
+        "models": model_list,
+        "local_fallback": bool(config.local_fallback_enabled),
+    }
+
 @app.get("/v1/metrics")
 async def api_metrics() -> dict[str, Any]:
     """Aggregate observability only; never return user content."""
