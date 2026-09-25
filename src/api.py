@@ -190,6 +190,46 @@ def _require_runtime() -> tuple[PostgresState, Brain, ProviderCascade]:
 async def _database_ping() -> bool:
     return bool(state and await state.database_ping())
 
+async def _portable_import_selftest(st: PostgresState) -> None:
+    enabled = os.getenv("C33_IMPORT_SELFTEST", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not enabled:
+        return
+    clone_id = uuid.uuid4()
+    clone_conversation = "import-selftest-" + uuid.uuid4().hex
+    try:
+        async with st.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
+                "FROM c33_messages ORDER BY created_at,seq LIMIT 1"
+            )
+        if row is None:
+            logger.info("[NEXO_IMPORT_SELFTEST] SKIP no source message")
+            return
+        item = {
+            "id": str(clone_id),
+            "conversation_id": clone_conversation,
+            "user_id": str(row["user_id"]),
+            "seq": int(row["seq"]),
+            "role": str(row["role"]),
+            "content": str(row["content"]),
+            "metadata": st._metadata_dict(row["metadata"]),
+            "request_id": row["request_id"],
+            "created_at": row["created_at"].astimezone(timezone.utc).isoformat(),
+        }
+        await st.import_replication_batch([item], enqueue_replication=False)
+        async with st.pool.acquire() as conn:
+            await conn.execute("DELETE FROM c33_messages WHERE id=$1", clone_id)
+            await conn.execute("DELETE FROM c33_conversation_heads WHERE conversation_id=$1", clone_conversation)
+        logger.info("[NEXO_IMPORT_SELFTEST] PASS")
+    except Exception as exc:
+        try:
+            async with st.pool.acquire() as conn:
+                await conn.execute("DELETE FROM c33_messages WHERE id=$1", clone_id)
+                await conn.execute("DELETE FROM c33_conversation_heads WHERE conversation_id=$1", clone_conversation)
+        except Exception as cleanup_exc:
+            logger.error("[NEXO_IMPORT_SELFTEST] cleanup_failure type=%s detail=%s", cleanup_exc.__class__.__name__, str(cleanup_exc)[:500])
+        logger.error("[NEXO_IMPORT_SELFTEST] FAIL type=%s detail=%s", exc.__class__.__name__, str(exc)[:1000])
+
 async def _peer_probe() -> str:
     if not config.peer_url:
         return "NOT_CONFIGURED"
@@ -266,6 +306,7 @@ async def lifespan(_: FastAPI):
             config.local_fallback_enabled,
         )
         brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
+        await _portable_import_selftest(state)
         replication_task = asyncio.create_task(_replication_loop())
     try:
         yield
@@ -343,6 +384,11 @@ async def ready() -> ReadyResponse:
     )
     if state is None or cascade is None or not db_ok:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"database_unavailable"})
+    if config.environment == "production" and (pending != 0 or peer != "ONLINE"):
+        raise HTTPException(
+            status_code=503,
+            detail={"status":"not_ready","reason":"replication_not_quiesced","replication_pending":pending,"peer_status":peer},
+        )
     if config.environment == "production" and config.peer_url and not config.peer_replication_secret:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"peer_replication_secret_missing"})
     if config.environment == "production":
