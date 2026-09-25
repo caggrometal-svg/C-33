@@ -42,6 +42,12 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertEqual(hub.select("alpha").provider_id, "alpha")
         self.assertEqual(hub.select("missing").provider_id, "alpha")
 
+
+    def test_web_tools_are_authorized_at_boundary(self):
+        from agent.brain import Brain
+        source = Brain.prepare_messages.__code__.co_consts
+        self.assertTrue(any('network_allowed=True' in str(item) for item in source))
+
     def test_model_hub_delegates_to_provider_cascade(self):
         from nexo.architecture import ModelHub
 
