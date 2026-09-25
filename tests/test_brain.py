@@ -71,6 +71,10 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("citation_out_of_range", result.warnings)
 
+        zero = engine.verify_response("Dato [0]", ["https://example.com"])
+        self.assertFalse(zero.ok)
+        self.assertIn("citation_out_of_range", zero.warnings)
+
     def test_orchestrator_routes_current_web_and_memory(self):
         from nexo.architecture import NexoOrchestrator
 
