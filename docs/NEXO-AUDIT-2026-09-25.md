@@ -4,11 +4,11 @@
 ## Fuente de verdad
 - Repositorio: caggrometal-svg/C-33
 - Rama: main
-- SHA certificado de código: `55a2d62213a37563398d65d9585329eff87c11d2`
+- SHA certificado de código: `9fda344d97483df065e8099e3bb8a1f494665ff4`
 - C-33 Certification: **PASS**
 - NEXO Progress Gate: **PASS**
-- Railway production deployment: `f86bc410-25f2-44f9-a349-84f56b2265f9` — SUCCESS
-- Certificación C-33 run: `292`
+- Railway production deployment: `03ac0850-b29a-4d66-b32e-30d9e5e69468` — SUCCESS
+- Certificación C-33 run: `294`
 - El gate live observó 200 en health, ready, chat, Web/IA, AI readiness, memoria, SSE, status y diagnostics.
 
 ## Correcciones cerradas
@@ -69,12 +69,17 @@
 `VERDE*` significa cerrado en el alcance contractual/automatizado y compatible con la certificación actual; no significa que toda capacidad futura del mapa esté completada.
 
 ## Secciones 41-60
-✅ **VERDE contractual.** `src/nexo/phases_41_60.py` y `tests/test_phases_41_60.py` cubren Degraded Mode, Research Object, Long-Term Context, Controlled Autonomy, Permissions, Trust Architecture, NEXO Protocol, portability/decentralization path, local/remote cooperation, privacy, modes, matrix y Master Test Plan.
+✅ **VERDE contractual y automatizado.** La matriz explícita certifica las 20 secciones (41-60) en verde y el gate CI dedicado queda incluido en la certificación C-33 run 294. `src/nexo/phases_41_60.py` y `tests/test_phases_41_60.py` cubren Degraded Mode, Research Object, Long-Term Context, Controlled Autonomy, Permissions, Trust Architecture, NEXO Protocol, portability/decentralization path, local/remote cooperation, privacy, modes, matrix y Master Test Plan.
 
 El criterio de madurez 60 sigue siendo una aceptación futura: no debe confundirse con la existencia del contrato.
 
 ## 61-72
 Estas secciones son reglas de gobierno, prioridad, aceptación y objetivo final. Quedan alineadas con el estado actual.
+
+## Estado runtime avanzado
+
+- Replicación multidevice: 🔵 AZUL. El live observado presenta `peer_status=OFFLINE` y `replication_pending=393`.
+- El cierre contractual 41-60 sigue 🟢 VERDE; la recuperación del peer y el vaciado seguro de pendientes corresponden al siguiente bloque distribuido.
 
 ## Siguiente bloque, no bloqueo
 - IA local real: integrar un proveedor local real y certificar funcionamiento offline.
