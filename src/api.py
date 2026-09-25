@@ -238,7 +238,18 @@ async def _peer_probe() -> str:
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(0.8, connect=0.4), trust_env=False, follow_redirects=False) as client:
             response = await client.get(config.peer_url + "/health", headers={"Cache-Control":"no-cache"})
-        return "ONLINE" if response.status_code == 200 else "OFFLINE"
+        if response.status_code != 200:
+            return "OFFLINE"
+        try:
+            body = response.json()
+        except ValueError:
+            return "OFFLINE"
+        if body.get("service") != "C-33":
+            return "OFFLINE"
+        peer_role = str(body.get("role", "")).strip().lower()
+        if config.role in {"primary", "backup"} and peer_role == config.role:
+            return "OFFLINE"
+        return "ONLINE"
     except httpx.HTTPError:
         return "OFFLINE"
 
