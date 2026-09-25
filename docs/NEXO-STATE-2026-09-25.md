@@ -2,16 +2,35 @@
 
 Fuente de verdad: rama `main`.
 
-Commit operativo verificado: `14652ccad9687ce203b14aa0ee9b373512c6a1bf`.
+HEAD actual de código: `c9f7adcdfd87bb5aad64c8471ff68a689b1746c1`.
 
-Railway production deployment para ese SHA: `04304de8-3f83-421c-af99-905d72a9c9c7` — SUCCESS.
+El repositorio contiene implementación y contratos hasta ETAPA 40 — AUTO MODE, además de las secciones de cierre 41-60.
 
-Los logs de producción registran HTTP 200 para `/health`, `/ready`, `/v1/chat`, `/v1/ai-ready`, `/v1/ai/stream`, `/status` y `/v1/ai/diagnostics` el 2026-09-25 entre 07:40:40 y 07:40:52 UTC.
+## Evidencia del ciclo
 
-El código actual incluye resiliencia de proveedores, circuit breaker persistente, failover, WebTool, memoria PostgreSQL, ModelHub, ToolHub, Orchestrator, VerificationEngine, diagnostics y cliente Android/Capacitor.
+- NEXO Progress Gate para el SHA de código `b2caf0f...`: PASS.
+- El último C-33 Certification completo antes de las correcciones falló en Web/IA remota con HTTP 504: Vireonix ~5.5 s y Animica ~5.75 s; la petición terminó ~12.3 s.
+- En este ciclo se corrigieron el aislamiento PostgreSQL por esquema, el presupuesto de failover y la prueba de tercer proveedor.
+- Railway production fue configurado con 18 s de presupuesto backend, 22 s de cliente y 8 s de red.
+- La certificación de C-33 del nuevo HEAD `c9f7adc...` está en ejecución.
 
-Importante: el fallback local actual es determinista; no se considera un LLM local.
+## Estado
 
-Pendientes reales: certificación reproducible completa de failover, evidencia extremo a extremo de Web/Memory, Release estable de APK y cierre de la arquitectura documental.
+C-33 / health / readiness: implementado.
+Circuit breaker: implementado y probado.
+Failover: implementado; falta evidencia inducida reproducible.
+Web / fuentes: implementado parcialmente; E2E live pendiente de cierre.
+Memoria: PostgreSQL + ranking determinista; E2E pendiente.
+Model Hub / Tool Hub / Orchestrator: implementados; runtime completo pendiente.
+ETAPAS 23-40: contratos presentes; Auto Mode integrado en Brain; certificación de producción pendiente.
+Secciones 41-60: contratos y tests presentes; prueba maestra aún no cerrada.
+IA local real: pendiente.
+Export/import de usuario: parcial.
+Autonomía externa: pendiente.
+Portabilidad completa: parcial.
+Descentralización completa: pendiente.
+Android release certificada: pendiente.
 
-Las ramas `c33-hardening-*` y otras ramas antiguas no representan el estado actual; varias están más de 100 commits detrás de `main`.
+Regla: módulo existente no equivale a etapa certificada. La certificación requiere contrato, tests, commit, SHA desplegado, runtime observado y recuperación documentada.
+
+Detalle integral: `docs/NEXO-AUDIT-2026-09-25.md`.
