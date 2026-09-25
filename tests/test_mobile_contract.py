@@ -20,9 +20,10 @@ class MobileContractTests(unittest.TestCase):
 
     def test_mobile_readiness_probe_targets_v1_ai_ready_get(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('"/v1/ai-ready"', app)
-        self.assertIn('method: "GET"', app)
-        self.assertIn("X-C33-Allow-Local-Fallback", app)
+        self.assertIn('const AI_READY_PATH = C.AI_READY_PATH || "/v1/ai-ready";', app)
+        self.assertIn("fetchBounded(base + AI_READY_PATH, {}, remaining)", app)
+        self.assertIn('headers: {', app)
+        self.assertIn('"X-C33-Deadline-Epoch-Ms"', app)
 
     def test_bundled_backend_fallback_matches_runtime_backend(self):
         config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
