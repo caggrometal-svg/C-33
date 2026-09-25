@@ -20,6 +20,9 @@ import httpx
 
 from memory.store import MemoryEntry
 
+_MAX_REPLICATION_TEXT_CHARS = 20_000
+_MAX_REPLICATION_ID_CHARS = 256
+
 SCHEMA = r'''
 CREATE TABLE IF NOT EXISTS c33_conversation_heads (
     conversation_id TEXT PRIMARY KEY,
@@ -474,13 +477,22 @@ class PostgresState:
                 for item in messages[:100]:
                     try:
                         mid = uuid.UUID(str(item["id"]))
-                        conversation_id = str(item["conversation_id"])
-                        user_id = str(item["user_id"])
+                        conversation_id = str(item["conversation_id"]).strip()
+                        user_id = str(item["user_id"]).strip()
                         seq = int(item["seq"])
                         role = str(item["role"])
                         if role not in {"user", "assistant", "system"}:
                             continue
                         content = str(item["content"]).strip()
+                        if (
+                            not conversation_id
+                            or not user_id
+                            or len(conversation_id) > _MAX_REPLICATION_ID_CHARS
+                            or len(user_id) > _MAX_REPLICATION_ID_CHARS
+                            or not content
+                            or len(content) > _MAX_REPLICATION_TEXT_CHARS
+                        ):
+                            continue
                         metadata = json.dumps(dict(item.get("metadata") or {}), ensure_ascii=False)
                         request_id = item.get("request_id")
                         if not conversation_id or not user_id or not content or seq < 1:
