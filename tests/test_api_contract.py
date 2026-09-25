@@ -83,6 +83,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('if version != "1":', self.api)
         self.assertIn('unsupported_replication_version', self.api)
 
+    def test_ai_ready_is_non_fallback_and_uncached(self):
+        ready = self.api.split('@app.get("/v1/ai-ready")', 1)[1].split('async def _run_with_disconnect', 1)[0]
+        self.assertIn('remote_ai_ready = None', ready)
+        self.assertIn('"used_local_fallback": False', ready)
+        self.assertIn('cascade.complete(', ready)
+        self.assertNotIn('local_fallback(', ready)
+
     def test_ready_checks_infrastructure_not_ai_generation(self):
         ready = self.api.split('@app.get("/ready"', 1)[1].split('@app.get("/v1/time")', 1)[0]
         self.assertIn('await _database_ping()', ready)
