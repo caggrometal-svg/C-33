@@ -18,6 +18,7 @@ from typing import Any
 import asyncpg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
@@ -235,7 +236,7 @@ async def _peer_probe() -> str:
         return "NOT_CONFIGURED"
     import httpx
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(0.8, connect=0.4)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(0.8, connect=0.4), trust_env=False, follow_redirects=False) as client:
             response = await client.get(config.peer_url + "/health", headers={"Cache-Control":"no-cache"})
         return "ONLINE" if response.status_code == 200 else "OFFLINE"
     except httpx.HTTPError:
@@ -335,6 +336,8 @@ async def lifespan(_: FastAPI):
         remote_ai_ready = None
 
 app = FastAPI(title="C-33 / NEXO API", version="2.0.0", lifespan=lifespan)
+_allowed_hosts = [item.strip().lower() for item in os.getenv("C33_ALLOWED_HOSTS", "localhost,127.0.0.1,*.up.railway.app,*.onrender.com").split(",") if item.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
