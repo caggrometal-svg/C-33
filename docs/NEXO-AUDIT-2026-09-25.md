@@ -109,3 +109,8 @@ El bloqueo inmediato ya no es un fallo sintáctico de código local. Es la certi
 - Repetir chat remoto + Web + /v1/ai-ready + SSE + diagnostics.
 - Cerrar evidencia de replicación pendiente=0 y sin pérdida/duplicación.
 - Actualizar ROADMAP/STATE con el SHA certificado.
+
+
+## Provider topology correction
+
+Production uses Kilo `kilo-auto/free` first, followed by BlockRun Nemotron and Vireonix. Kilo documents anonymous access for free models; BlockRun publishes its free Nemotron endpoint without a key. The topology is intentionally zero-cost and provider-independent.
