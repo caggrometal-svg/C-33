@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -16,6 +17,7 @@ class ConfigurationError(ValueError):
 class InfrastructureConfig:
     port: int
     database_url: str | None
+    database_schema: str
     secret_keys: tuple[str, ...]
     model_name: str
     model_base_url: str
@@ -45,6 +47,12 @@ def _required_port() -> int:
     if not 1 <= port <= 65535:
         raise ConfigurationError("PORT must be between 1 and 65535")
     return port
+
+def _database_schema() -> str:
+    value = os.getenv("C33_DB_SCHEMA", "public").strip() or "public"
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise ConfigurationError("C33_DB_SCHEMA must be a valid PostgreSQL schema identifier")
+    return value
 
 def _optional_database_url() -> str | None:
     value = os.getenv("DATABASE_URL", "").strip()
@@ -109,6 +117,7 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     return InfrastructureConfig(
         port=_required_port(),
         database_url=_optional_database_url(),
+        database_schema=_database_schema(),
         secret_keys=_required_secret_keys(),
         model_name=model_name,
         model_base_url=model_base_url,
