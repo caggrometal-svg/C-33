@@ -1,66 +1,55 @@
-# C-33
+# C-33 / NEXO
 
-Núcleo funcional de una IA independiente con tres capacidades coordinadas:
+C-33 es el núcleo actual de NEXO: una IA personal modular orientada a conectividad real, memoria durable, herramientas reemplazables, múltiples proveedores y recuperación ante fallos.
 
-- **ReAct:** ciclo acotado de planificación, uso de memoria, búsqueda web y síntesis.
-- **Internet:** búsqueda DuckDuckGo, descarga HTTP(S), extracción de texto limpio y resumen ligero.
-- **Memoria:** persistencia local JSON con recuperación de contexto reciente y relevante.
+## Estado actual
 
-## Estructura
+La rama operativa es `main`. El estado documentado y auditado se encuentra en:
 
-\`\`\`text
-C-33/
-├── src/
-│   ├── core/
-│   │   └── config.py
-│   ├── agent/
-│   │   └── brain.py
-│   ├── tools/
-│   │   └── web.py
-│   ├── memory/
-│   │   └── store.py
-│   └── main.py
-├── .env.example
-├── .gitignore
-├── pyproject.toml
-└── requirements.txt
-\`\`\`
+- `docs/NEXO-STATE-2026-09-25.md`
+- `docs/ARCHITECTURE.md`
+- `docs/ROADMAP.md`
 
-## Requisitos
+El commit operativo auditado es identificable en GitHub y el deployment de Railway se verifica contra el mismo SHA.
 
-Python 3.12 o 3.13.
+## Capacidades actuales
 
-## Instalación
+- API FastAPI para chat y streaming SSE.
+- Readiness e IA remota comprobable.
+- Cascade de proveedores con circuit breaker persistente y failover.
+- Fallback local determinista, explícitamente marcado como degradado.
+- WebTool para búsqueda y fetch HTTP(S).
+- Memoria durable en PostgreSQL.
+- Model Hub y Tool Hub con contratos independientes.
+- Orchestrator y VerificationEngine.
+- Observabilidad mediante request IDs, métricas y diagnostics.
+- Cliente Android/Capacitor.
+- Pipelines de tests, CodeQL y construcción de APK.
 
-\`\`\`bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-\`\`\`
+## Cliente Android
 
-## Activación de un modelo
+La versión actual declarada del bundle móvil es NEXO 0.1.6.
 
-C-33 no fija un proveedor propietario. Para habilitar planificación y síntesis con un endpoint compatible con Chat Completions, configura en \`.env\`:
+La construcción reproducible se realiza mediante GitHub Actions. La APK no debe considerarse una versión estable únicamente por existir como artifact temporal: una versión distribuible debe quedar asociada a versión, commit, fecha y pruebas.
 
-\`\`\`text
-MODEL_BASE_URL=https://tu-endpoint/v1
-MODEL_NAME=tu-modelo
-MODEL_API_KEY=tu-clave-opcional
-\`\`\`
+## Configuración del modelo
 
-Sin estas variables, el núcleo sigue operativo en modo local: puede consultar memoria, acceder a la web y entregar el contexto recuperado de forma transparente.
+C-33 no fija un único proveedor propietario. Los proveedores se configuran mediante variables de entorno y `ProviderCascade` exige redundancia cuando el entorno productivo la requiere.
 
-## Ejecución interactiva
+El núcleo puede operar con fallback local determinista cuando la generación remota no está disponible. Esto no se presenta como un LLM local hasta que exista uno realmente ejecutable.
 
-\`\`\`bash
-python src/main.py
-\`\`\`
+## Infraestructura
 
-Comandos de sesión:
+El código puede desplegarse con Docker y contiene configuración para Railway y Render.
 
-- \`/clear\` limpia la memoria persistente.
-- \`/memory\` muestra cuántas interacciones están guardadas.
-- \`/exit\` termina la sesión.
+## Regla fundamental
 
-La interfaz muestra únicamente acciones observables del ciclo ReAct; no expone razonamiento interno o cadena de pensamiento privada.
+NEXO no debe fingir capacidades.
+
+No afirma que realizó una búsqueda si no la realizó, no afirma que recuerda datos que no puede recuperar y no afirma que la IA remota está disponible sin una comprobación de la ruta correspondiente.
+
+## Próximo objetivo
+
+La prioridad es cerrar la certificación reproducible de C-33 antes de ampliar la arquitectura: conectividad, observabilidad, failover, Web Engine y Memory Engine.
+
+NEXO no se mide por la apariencia de la APK, sino por su capacidad de funcionar, investigar, recordar, cambiar de modelo, recuperarse y mantener el control en manos del usuario.
