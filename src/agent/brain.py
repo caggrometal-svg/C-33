@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent.nexo import NexoCore
+from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, VerificationEngine
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
@@ -35,6 +36,12 @@ class Brain:
         self.web = web
         self.cascade = cascade
         self.nexo = NexoCore()
+        self.tools = ToolHub()
+        self.tools.register("web_search", self.web.search)
+        self.tools.register("web_fetch", self.web.fetch)
+        self.models = ModelHub(cascade)
+        self.orchestrator = NexoOrchestrator()
+        self.verifier = VerificationEngine()
 
     async def prepare_messages(
         self,
@@ -57,27 +64,14 @@ class Brain:
             ))
 
         sources: list[str] = []
-        lower = prompt.lower()
-        needs_web = bool(re.search(r"https?://\S+", prompt)) or any(
-            marker in lower
-            for marker in {
-                "latest", "today", "ahora", "actual", "actualmente", "current",
-                "news", "noticia", "noticias", "precio", "price", "fuente", "fuentes",
-                "verifica", "verificar", "comprueba", "comprueba", "evidencia", "prueba",
-                "internet", "navega", "navegar", "navegación", "web", "busca", "buscar",
-                "investiga", "investigar", "consulta", "consultar",
-            }
-        )
-        # Explicit /web keeps the contract deterministic for queries that are not
-        # obviously time-sensitive but still require live Internet evidence.
-        explicit_web = lower.startswith("/web ") or lower.startswith("web:") or "busca en internet" in lower
-        if (needs_web or explicit_web) and budget.remaining_ms >= 4_000:
+        route = self.orchestrator.plan(prompt, memory_hits)
+        if route.use_web and budget.remaining_ms >= 4_000:
             try:
                 search_timeout = min(2.75, max(0.75, (budget.remaining_ms - 1_000) / 1000))
                 query = re.sub(r"^\s*/web\s+", "", prompt, flags=re.IGNORECASE).strip()
                 query = re.sub(r"^\s*web:\s*", "", query, flags=re.IGNORECASE).strip()
                 results = await asyncio.wait_for(
-                    self.web.search(query),
+                    self.tools.invoke("web_search", query),
                     timeout=search_timeout,
                 )
                 if not results:
@@ -90,7 +84,7 @@ class Brain:
                 fetch_timeout = min(2.25, max(0.75, (budget.remaining_ms - 500) / 1000))
                 fetched = await asyncio.gather(
                     *[
-                        asyncio.wait_for(self.web.fetch(item.url), timeout=fetch_timeout)
+                        asyncio.wait_for(self.tools.invoke("web_fetch", item.url), timeout=fetch_timeout)
                         for item in page_results
                     ],
                     return_exceptions=True,
@@ -119,6 +113,12 @@ class Brain:
                             f"Web source {len(sources)}: {result.title} | {result.url} | "
                             f"search snippet: {result.snippet}"
                         )
+                verification = self.verifier.verify_sources(sources)
+                if not verification.ok:
+                    context.append(
+                        "WEB_VERIFICATION_WARNING: " + ", ".join(verification.warnings)
+                    )
+                sources = list(verification.sources)
             except Exception as exc:
                 context.append(
                     "WEB_LOOKUP_FAILED: The live internet lookup failed for this turn. "
@@ -157,7 +157,7 @@ class Brain:
             personality_mode=personality_mode,
             budget=budget,
         )
-        generation: GenerationResult = await self.cascade.complete(messages, budget)
+        generation: GenerationResult = await self.models.complete(messages, budget)
         return AgentResult(
             response=generation.text,
             trace=[AgentTrace(1, "generate", generation.meta.final_reason)],
@@ -176,7 +176,4 @@ class Brain:
 
     @staticmethod
     def local_fallback(prompt: str, reason: str) -> str:
-        return (
-            "NEXO está operando en respaldo local. La generación remota no está disponible en este momento "
-            f"({reason}). No presentaré este texto como una respuesta de IA remota. Consulta recibida: {prompt[:200]}"
-        )
+        return LocalModel.complete(prompt, reason)
