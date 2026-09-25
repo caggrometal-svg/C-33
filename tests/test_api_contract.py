@@ -83,6 +83,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('if version != "1":', self.api)
         self.assertIn('unsupported_replication_version', self.api)
 
+    def test_ready_checks_infrastructure_not_ai_generation(self):
+        ready = self.api.split('@app.get("/ready"', 1)[1].split('@app.get("/v1/time")', 1)[0]
+        self.assertIn('await _database_ping()', ready)
+        self.assertIn('cascade.assert_ready_configuration()', ready)
+        self.assertNotIn('cascade.complete(', ready)
+        self.assertIn('peer_replication_secret_missing', ready)
+
     def test_health_is_pure_liveness_contract(self):
         health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready"', 1)[0]
         health_fn = health.split('async def health', 1)[1]
