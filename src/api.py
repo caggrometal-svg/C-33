@@ -387,6 +387,7 @@ async def replication_status() -> dict[str, Any]:
     st, _, _ = _require_runtime()
     peer = await _peer_probe()
     pending = await st.replication_pending_count()
+    integrity = await st.replication_integrity()
     return {
         "status": "ok",
         "deployment_sha": _deployment_sha(),
@@ -394,6 +395,7 @@ async def replication_status() -> dict[str, Any]:
         "peer_url_configured": bool(config.peer_url),
         "peer_status": peer,
         "replication_pending": pending,
+        **integrity,
         "quiesced": peer == "ONLINE" and pending == 0,
     }
 
