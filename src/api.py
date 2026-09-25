@@ -455,6 +455,8 @@ async def import_user_data(payload: ImportRequest, request: Request) -> dict[str
         accepted = await st.import_replication_batch(messages, enqueue_replication=payload.replicate)
     except ReplicationConflictError as exc:
         raise HTTPException(status_code=409, detail={"reason": "import_conflict", "detail": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"reason": "invalid_import_message", "detail": str(exc)}) from exc
     return {
         "status": "ok",
         "schema_version": payload.bundle.get("schema_version"),
