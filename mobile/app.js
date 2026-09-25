@@ -667,4 +667,3 @@ if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
 refreshConnection();
 setInterval(() => { if (document.visibilityState === "visible" && activeControllers.size === 0) refreshConnection(); }, 60000);
 resizeInput();
-input.focus();
