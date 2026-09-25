@@ -648,10 +648,13 @@ class PostgresState:
                 "FROM c33_messages ORDER BY id"
             )
         digest = hashlib.sha256()
+        id_digest = hashlib.sha256()
         unique_ids: set[str] = set()
         for row in rows:
             message_id = str(row["id"])
             unique_ids.add(message_id)
+            id_digest.update(message_id.encode("utf-8"))
+            id_digest.update(b"\\n")
             record = {
                 "id": message_id,
                 "conversation_id": str(row["conversation_id"]),
@@ -669,6 +672,7 @@ class PostgresState:
         return {
             "total_messages": len(rows),
             "unique_message_ids": len(unique_ids),
+            "message_id_digest": id_digest.hexdigest(),
             "message_digest": digest.hexdigest(),
         }
 
