@@ -280,6 +280,31 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(ctx.exception.http_status, 429)
 
+    def test_final_reason_prioritizes_transport_failures(self):
+        from resilience.providers import ProviderCascade
+
+        self.assertEqual(
+            ProviderCascade._final_reason([
+                {"reason": "provider_5xx", "status": 502},
+                {"reason": "timeout", "status": 504},
+            ]),
+            "timeout",
+        )
+        self.assertEqual(
+            ProviderCascade._final_reason([
+                {"reason": "provider_5xx", "status": 502},
+                {"reason": "dns_failure", "status": 502},
+            ]),
+            "dns_failure",
+        )
+        self.assertEqual(
+            ProviderCascade._final_reason([
+                {"reason": "provider_5xx", "status": 502},
+                {"reason": "auth_error", "status": 401},
+            ]),
+            "provider_auth_failure",
+        )
+
     def test_default_provider_contract_is_two_independent_bounded_providers(self):
         previous = {key: os.environ.get(key) for key in (
             "AI_PROVIDERS_JSON",
