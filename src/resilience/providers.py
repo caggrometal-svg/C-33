@@ -72,7 +72,7 @@ class DeadlineBudget:
         # room inside the global 18 s request budget. Production configuration
         # may advertise a higher timeout, but a slow provider must not consume
         # the entire request budget before peers are attempted.
-        per_provider_cap_ms = 4500
+        per_provider_cap_ms = 6500
         return max(250, min(configured_ms, per_provider_cap_ms, self.remaining_ms - reserve_ms))
 
 class ProviderCascade:
@@ -156,7 +156,7 @@ class ProviderCascade:
                         model,
                         None,
                         str(item.get("failure_domain", host)).strip() or host,
-                        max(500, int(item.get("timeout_ms", 4500))),
+                        max(500, int(item.get("timeout_ms", 6500))),
                         capabilities,
                     )
                 )
@@ -168,7 +168,7 @@ class ProviderCascade:
                     "kilo-auto/free",
                     None,
                     "kilo.ai",
-                    4500,
+                    6500,
                 ),
                 ProviderSpec(
                     "vireonix",
