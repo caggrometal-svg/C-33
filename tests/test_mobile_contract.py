@@ -90,6 +90,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('messageNode.appendChild(sourceBox)', app)
         self.assertNotIn("sourceBox.innerHTML", app)
 
+    def test_stream_does_not_fail_over_after_partial_tokens(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('if (receivedToken) {', app)
+        self.assertIn('throw new Error("NEXO stream interrumpido: " + reason);', app)
+        self.assertIn('if (Date.now() < deadlineAt && index < BACKEND_URLS.length - 1)', app)
+
     def test_frontend_consumes_structured_sse_error_events(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn('if (eventName === "error")', app)
