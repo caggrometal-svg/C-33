@@ -39,6 +39,10 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('return value.strip() if isinstance(value, str) else value', self.api)
         self.assertIn('message: str = Field(min_length=1, max_length=20_000)', self.api)
 
+    def test_global_http_responses_are_marked_no_store(self):
+        self.assertIn('response.headers.setdefault("Cache-Control", "no-store")', self.api)
+        self.assertIn('apply_security_headers(response)', self.api)
+
     def test_chat_response_meta_alias_remains_stable(self):
         self.assertIn('meta: ResponseMeta = Field(alias="_meta")', self.api)
         self.assertIn('model_config = {"populate_by_name": True}', self.api)
