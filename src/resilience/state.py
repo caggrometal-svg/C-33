@@ -104,11 +104,13 @@ class ReplicationMessage:
 class PostgresState:
     """Durable state store shared by all instances of one backend deployment."""
 
-    def __init__(self, pool: asyncpg.Pool) -> None:
+    def __init__(self, pool: asyncpg.Pool, *, schema: str = "public") -> None:
         self.pool = pool
+        self.schema = schema
 
     async def initialize(self) -> None:
         async with self.pool.acquire() as conn:
+            await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
             await conn.execute(SCHEMA)
 
     async def database_ping(self) -> bool:
