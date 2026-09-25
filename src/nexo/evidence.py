@@ -19,7 +19,7 @@ def grade_evidence(response: str, sources: list[str]) -> EvidenceGrade:
     warnings: list[str] = []
     if clean and not citations:
         warnings.append("web_sources_without_inline_citations")
-    if citations and (not clean or max(citations) > len(clean)):
+    if citations and (min(citations) < 1 or max(citations) > len(clean)):
         warnings.append("citation_out_of_range")
     unique = tuple(dict.fromkeys(warnings))
     if not clean:
