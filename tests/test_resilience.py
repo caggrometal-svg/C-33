@@ -134,6 +134,48 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(result.meta.provider_used, "b")
 
+    async def test_preferred_provider_is_attempted_first(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=FaultTransport({"a.test": "ok", "b.test": "ok"}),
+        )
+        result = await cascade.complete(
+            [{"role":"user","content":"x"}],
+            DeadlineBudget(5000),
+            preferred_provider="b",
+        )
+        self.assertEqual(result.meta.provider_used, "b")
+        self.assertFalse(result.meta.failover_triggered)
+        self.assertEqual(state.successes[-1], "b")
+
+    async def test_preferred_provider_failure_fails_over_to_configured_peer(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b"],
+            transport=FaultTransport({"a.test": "ok", "b.test": "502"}),
+        )
+        result = await cascade.complete(
+            [{"role":"user","content":"x"}],
+            DeadlineBudget(5000),
+            preferred_provider="b",
+        )
+        self.assertEqual(result.meta.provider_used, "a")
+        self.assertTrue(result.meta.failover_triggered)
+        self.assertEqual(state.failures[0][0], "b")
+
     async def test_5xx_fails_over_to_second_provider(self):
         state = FakeState()
         specs = [
