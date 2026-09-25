@@ -34,7 +34,7 @@ button { -webkit-tap-highlight-color: transparent; }
   height: 100dvh;
   margin: 0 auto;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   background:
     radial-gradient(circle at 50% 0%, rgba(57,255,20,0.045), transparent 32%),
     linear-gradient(180deg, #050806 0%, var(--black) 38%, #010201 100%);
@@ -205,7 +205,7 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 22px 16px 18px;
+  padding: 22px 16px calc(118px + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -522,10 +522,14 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
 .color-variety .brand-mark span:nth-child(3) { background: #ff4fd8; box-shadow: 0 0 10px rgba(255,79,216,0.78); }
 
 .composer {
-  position: relative;
-  z-index: 3;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
   padding: 10px 12px max(12px, env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, rgba(2,4,3,0.2), rgba(2,4,3,0.96) 30%);
+  background: linear-gradient(180deg, rgba(2,4,3,0), rgba(2,4,3,0.78) 26%, rgba(2,4,3,0.98) 72%);
+  transform: translateZ(0);
 }
 
 .composer-shell {
