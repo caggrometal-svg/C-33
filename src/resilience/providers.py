@@ -270,6 +270,15 @@ class ProviderCascade:
         if self.require_redundancy and len(self.failure_domains) < 2:
             raise ProviderConfigurationError("provider_failure_domains_not_diverse")
 
+    def _ordered_specs(self, preferred_provider: str | None = None) -> list[ProviderSpec]:
+        preferred = (preferred_provider or "").strip()
+        if not preferred:
+            return list(self.providers)
+        preferred_spec = next((spec for spec in self.providers if spec.provider_id == preferred), None)
+        if preferred_spec is None:
+            return list(self.providers)
+        return [preferred_spec] + [spec for spec in self.providers if spec.provider_id != preferred]
+
     def assert_ready_configuration(self) -> None:
         try:
             self.validate_configuration()
@@ -297,14 +306,21 @@ class ProviderCascade:
                 return await self.state.circuit_before_call(provider_id)
         return decision
 
-    async def complete(self, messages: list[dict[str, str]], budget: DeadlineBudget, *, probe: bool = False) -> GenerationResult:
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        budget: DeadlineBudget,
+        *,
+        probe: bool = False,
+        preferred_provider: str | None = None,
+    ) -> GenerationResult:
         self.assert_ready_configuration()
         if probe:
             return await self._probe_parallel(messages, budget)
         attempts: list[dict[str, Any]] = []
         if budget.remaining_ms < 1000:
             raise GenerationFailure("deadline_exhausted_before_provider", http_status=504, attempts=[])
-        for index, spec in enumerate(self.providers):
+        for index, spec in enumerate(self._ordered_specs(preferred_provider)):
             if budget.remaining_ms < 500:
                 break
             decision = await self._circuit_decision_with_grace(spec.provider_id, budget)
@@ -320,7 +336,8 @@ class ProviderCascade:
                 await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=latency)
                 logger.info("[NEXO_DEBUG_PROVIDER] complete_success provider=%s latency_ms=%s", spec.provider_id, latency)
                 attempts.append({"provider":spec.provider_id,"status":200,"latency_ms":latency})
-                return GenerationResult(text=text, meta=ProviderMeta(spec.provider_id,spec.model,index>0,len(attempts),latency,"success_after_failover" if index>0 else "success","AI_READY" if index==0 else "DEGRADED"))
+                used_fallback = bool(preferred_provider and spec.provider_id != preferred_provider) or (not preferred_provider and index > 0)
+                return GenerationResult(text=text, meta=ProviderMeta(spec.provider_id,spec.model,used_fallback,len(attempts),latency,"success_after_failover" if used_fallback else "success","AI_READY" if not used_fallback else "DEGRADED"))
             except GenerationFailure as exc:
                 latency = int((time.monotonic()-started)*1000)
                 await self.state.circuit_failure(spec.provider_id, reason=exc.reason, status=exc.http_status, model=spec.model, latency_ms=latency, cooldown_ms=self._cooldown_ms(exc))
@@ -514,10 +531,16 @@ class ProviderCascade:
         if not isinstance(content,str) or not content.strip(): raise GenerationFailure("empty_provider_response",http_status=502,attempts=[])
         return content.strip()
 
-    async def stream(self, messages: list[dict[str,str]], budget: DeadlineBudget) -> AsyncIterator[tuple[str,ProviderMeta]]:
+    async def stream(
+        self,
+        messages: list[dict[str,str]],
+        budget: DeadlineBudget,
+        *,
+        preferred_provider: str | None = None,
+    ) -> AsyncIterator[tuple[str,ProviderMeta]]:
         self.assert_ready_configuration()
         attempts: list[dict[str,Any]]=[]
-        for index,spec in enumerate(self.providers):
+        for index,spec in enumerate(self._ordered_specs(preferred_provider)):
             if budget.remaining_ms<1000: break
             decision=await self._circuit_decision_with_grace(spec.provider_id, budget)
             if not decision.allowed:
@@ -557,7 +580,8 @@ class ProviderCascade:
                             except (ValueError,KeyError,IndexError,TypeError): continue
                             if piece:
                                 got_token=True
-                                yield piece,ProviderMeta(spec.provider_id,spec.model,index>0,len(attempts)+1,int((time.monotonic()-started)*1000),"streaming","AI_READY" if index==0 else "DEGRADED")
+                                used_fallback = bool(preferred_provider and spec.provider_id != preferred_provider) or (not preferred_provider and index > 0)
+                                yield piece,ProviderMeta(spec.provider_id,spec.model,used_fallback,len(attempts)+1,int((time.monotonic()-started)*1000),"streaming","AI_READY" if not used_fallback else "DEGRADED")
                         if not got_token: raise GenerationFailure("empty_stream",http_status=502,attempts=[])
             except asyncio.CancelledError: raise
             except GenerationFailure as exc:
