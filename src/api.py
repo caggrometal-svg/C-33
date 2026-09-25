@@ -30,7 +30,7 @@ from nexo.evidence import grade_evidence
 from nexo.http_security import apply_security_headers
 from config import InfrastructureConfig, load_infrastructure_config
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError
-from resilience.state import PostgresState
+from resilience.state import PostgresState, ReplicationConflictError
 from tools.web import WebTool
 
 config: InfrastructureConfig = load_infrastructure_config()
@@ -900,5 +900,8 @@ async def replicate(request: Request) -> JSONResponse:
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid_replication_payload") from exc
     st, _, _ = _require_runtime()
-    imported = await st.import_replication_batch(messages)
-    return JSONResponse({"status":"ok","imported":imported})
+    try:
+        accepted = await st.import_replication_batch(messages)
+    except ReplicationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return JSONResponse({"status":"ok","accepted":accepted,"received":len(messages)})
