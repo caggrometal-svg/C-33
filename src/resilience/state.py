@@ -654,7 +654,7 @@ class PostgresState:
             message_id = str(row["id"])
             unique_ids.add(message_id)
             id_digest.update(message_id.encode("utf-8"))
-            id_digest.update(b"\\n")
+            id_digest.update(b"\n")
             record = {
                 "id": message_id,
                 "conversation_id": str(row["conversation_id"]),
