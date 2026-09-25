@@ -69,6 +69,10 @@ def load_settings(dotenv_path: str | None = ".env") -> Settings:
         load_dotenv(dotenv_path=dotenv_path, override=False)
 
     # FREE mode: model credentials are intentionally ignored.
+    if os.getenv("OPENAI_API_KEY", "").strip() or os.getenv("MODEL_API_KEY", "").strip():
+        raise ValueError("paid_inference_keys_are_disabled_in_free_mode")
+    if os.getenv("AI_ZERO_COST_MODE", "true").strip().lower() not in {"1", "true", "yes", "on"}:
+        raise ValueError("AI_ZERO_COST_MODE must remain enabled")
     api_key = None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     return Settings(
