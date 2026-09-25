@@ -38,6 +38,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("let refreshInFlight = null;", app)
         self.assertRegex(app, r"if \(refreshInFlight\) return refreshInFlight;")
 
+    def test_frontend_consumes_structured_sse_error_events(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('if (eventName === "error")', app)
+        self.assertIn('streamError = [statusHint, data?.reason || "stream_error"', app)
+        self.assertIn('finalMeta = data?._meta || finalMeta', app)
+
     def test_frontend_pauses_readiness_probes_during_stream(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn("activeControllers.size > 0", app)
