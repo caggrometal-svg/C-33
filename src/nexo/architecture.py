@@ -199,11 +199,23 @@ class ModelHub:
         """Return the provider selected by the deterministic task policy."""
         return ModelSelectionPolicy.choose(self.profiles, prompt)
 
-    async def complete(self, messages: list[dict[str, str]], budget: Any) -> Any:
-        return await self.cascade.complete(messages, budget)
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        budget: Any,
+        *,
+        preferred_provider: str | None = None,
+    ) -> Any:
+        return await self.cascade.complete(messages, budget, preferred_provider=preferred_provider)
 
-    def stream(self, messages: list[dict[str, str]], budget: Any) -> Any:
-        return self.cascade.stream(messages, budget)
+    def stream(
+        self,
+        messages: list[dict[str, str]],
+        budget: Any,
+        *,
+        preferred_provider: str | None = None,
+    ) -> Any:
+        return self.cascade.stream(messages, budget, preferred_provider=preferred_provider)
 
 
 class LocalModel:
