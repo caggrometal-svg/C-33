@@ -9,7 +9,9 @@ from __future__ import annotations
 import inspect
 import re
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
+
+from nexo.tool_policy import ToolCapability, ToolPolicy
 
 Handler = Callable[..., Any]
 
@@ -29,18 +31,28 @@ class ToolHub:
 
     def __init__(self) -> None:
         self._tools: dict[str, Handler] = {}
+        self.policy = ToolPolicy()
 
-    def register(self, name: str, handler: Handler) -> None:
+    def register(self, name: str, handler: Handler, *, network: bool = False, mutates_state: bool = False, risk: str = "low") -> None:
         key = name.strip().lower()
         if not key or not callable(handler):
             raise ValueError("tool name and callable handler are required")
         if key in self._tools:
             raise ValueError(f"tool_already_registered:{key}")
         self._tools[key] = handler
+        self.policy.register(ToolCapability(key, network=network, mutates_state=mutates_state, risk=risk))
 
     @property
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._tools))
+
+    def describe(self) -> tuple[dict[str, Any], ...]:
+        return tuple({
+            "name": name,
+            "network": bool(self.policy.get(name).network),
+            "mutates_state": bool(self.policy.get(name).mutates_state),
+            "risk": self.policy.get(name).risk,
+        } for name in self.names)
 
     async def invoke(self, name: str, *args: Any, **kwargs: Any) -> Any:
         key = name.strip().lower()
