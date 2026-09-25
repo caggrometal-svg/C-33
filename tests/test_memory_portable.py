@@ -43,8 +43,10 @@ class MemoryEngineTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as tmp:
                 store = MemoryStore(str(Path(tmp) / "memory.json"), short_term_limit=1, long_term_limit=4)
                 await store.save("credencial del usuario", "dato antiguo")
+                recent = await store.save("saludo general", "dato reciente")
                 hits = await store.search_context("red", limit=4)
-                self.assertEqual(hits, [])
+                self.assertEqual([entry.id for entry in hits], [recent.id])
+                self.assertEqual(hits[0].summary, "dato reciente")
 
         asyncio.run(exercise())
 
