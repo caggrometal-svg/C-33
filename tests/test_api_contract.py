@@ -83,6 +83,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('if version != "1":', self.api)
         self.assertIn('unsupported_replication_version', self.api)
 
+    def test_health_is_pure_liveness_contract(self):
+        health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready")', 1)[0]
+        self.assertIn('return {"status":"alive"', health)
+        self.assertNotIn("_database_ping()", health)
+        self.assertNotIn("ai_ready(", health)
+        self.assertNotIn("cascade.complete(", health)
+
     def test_capabilities_endpoint_is_safe_metadata(self):
         self.assertIn('@app.get("/v1/capabilities")', self.api)
         self.assertIn('safe capability metadata', self.api)
