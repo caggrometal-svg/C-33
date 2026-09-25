@@ -13,9 +13,11 @@
 
 * { box-sizing: border-box; }
 
-html, body { margin: 0; min-height: 100%; background: var(--black); }
+html, body { width: 100%; height: 100%; margin: 0; min-height: 100%; overflow: hidden; background: var(--black); }
 
 body {
+  height: 100vh;
+  height: 100dvh;
   min-height: 100vh;
   min-height: 100dvh;
   color: var(--text);
@@ -38,6 +40,7 @@ button { -webkit-tap-highlight-color: transparent; }
     linear-gradient(180deg, #050806 0%, var(--black) 38%, #010201 100%);
   overflow: hidden;
   position: relative;
+  isolation: isolate;
 }
 
 .app::before {
@@ -50,11 +53,12 @@ button { -webkit-tap-highlight-color: transparent; }
     linear-gradient(90deg, rgba(255,23,68,0.02) 1px, transparent 1px);
   background-size: 36px 36px;
   mask-image: linear-gradient(to bottom, black, transparent 72%);
+  z-index: 0;
 }
 
 .topbar {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -197,7 +201,7 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
 
 .chat {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -519,7 +523,7 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
 
 .composer {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   padding: 10px 12px max(12px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(2,4,3,0.2), rgba(2,4,3,0.96) 30%);
 }
@@ -663,7 +667,8 @@ textarea:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
   height: 100%;
   display: block;
   pointer-events: none;
-  opacity: 0.24;
+  z-index: 1;
+  opacity: 0.42;
   mix-blend-mode: screen;
 }
 
@@ -675,7 +680,8 @@ textarea:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
   pointer-events: none;
   background:
     radial-gradient(circle at 50% 44%, rgba(57,255,20,0.035), transparent 55%),
-    linear-gradient(180deg, rgba(2,4,3,0.18), rgba(2,4,3,0.36) 52%, rgba(1,2,1,0.48));
+    linear-gradient(180deg, rgba(2,4,3,0.12), rgba(2,4,3,0.22) 52%, rgba(1,2,1,0.32));
+  z-index: 2;
 }
 
 .topbar,
