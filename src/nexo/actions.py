@@ -1,9 +1,11 @@
 """Explicitly authorized external action executor."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import ipaddress
 import os
+import socket
 import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -85,8 +87,28 @@ class ExternalActionExecutor:
             raise ActionPolicyError("invalid_action_response_limit")
         return action, method
 
+    @staticmethod
+    async def _assert_resolved_host_is_public(hostname: str) -> None:
+        try:
+            infos = await asyncio.to_thread(socket.getaddrinfo, hostname, None, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise ActionPolicyError("action_target_dns_resolution_failed") from exc
+        ips = {ipaddress.ip_address(info[4][0]) for info in infos}
+        if not ips or any(
+            not ip.is_global
+            or ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            for ip in ips
+        ):
+            raise ActionPolicyError("private_action_target_blocked")
+
     async def execute(self, request: ActionRequest) -> ActionResult:
         action, method = self.validate(request)
+        target_host = (urlparse(request.url.strip()).hostname or "").lower()
+        await self._assert_resolved_host_is_public(target_host)
         headers = {str(k): str(v) for k, v in (request.headers or {}).items()}
         headers.pop("Host", None)
         headers.pop("Content-Length", None)
@@ -102,13 +124,42 @@ class ExternalActionExecutor:
                 transport=self.transport,
                 trust_env=False,
             ) as client:
-                response = await client.request(
+                async with client.stream(
                     method,
                     request.url,
                     headers=headers,
                     json=request.body if request.body is not None else None,
-                )
-                raw = (await response.aread())[: int(request.max_response_bytes)]
+                ) as response:
+                    declared = response.headers.get("content-length", "").strip()
+                    try:
+                        if declared and int(declared) > int(request.max_response_bytes):
+                            return ActionResult(
+                                action=action,
+                                ok=False,
+                                status_code=response.status_code,
+                                body="",
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                                response_sha256=hashlib.sha256(b"").hexdigest(),
+                                reason="response_too_large",
+                            )
+                    except ValueError:
+                        pass
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > int(request.max_response_bytes):
+                            return ActionResult(
+                                action=action,
+                                ok=False,
+                                status_code=response.status_code,
+                                body="",
+                                latency_ms=int((time.monotonic() - started) * 1000),
+                                response_sha256=hashlib.sha256(b"").hexdigest(),
+                                reason="response_too_large",
+                            )
+                        chunks.append(chunk)
+                    raw = b"".join(chunks)
             return ActionResult(
                 action=action,
                 ok=200 <= response.status_code < 300,
