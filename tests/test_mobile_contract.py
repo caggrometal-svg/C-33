@@ -41,6 +41,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('client-deterministic-fallback', app)
         self.assertIn('used_local_fallback', app)
 
+    def test_pagehide_aborts_registered_controllers_and_clears_set(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('window.addEventListener("pagehide"', app)
+        self.assertIn("for (const controller of activeControllers) controller.abort();", app)
+        self.assertIn("activeControllers.clear();", app)
+
     def test_bounded_requests_join_pagehide_cancellation_set(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn("activeControllers.add(controller);", app)
