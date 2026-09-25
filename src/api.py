@@ -191,7 +191,8 @@ async def _database_ping() -> bool:
     return bool(state and await state.database_ping())
 
 async def _portable_import_selftest(st: PostgresState) -> None:
-    enabled = os.getenv("C33_IMPORT_SELFTEST", "").strip().lower() in {"1", "true", "yes", "on"}
+    enabled = True
+    logger.info("[NEXO_IMPORT_SELFTEST] forced_one_shot=true")
     if not enabled:
         return
     clone_id = uuid.uuid4()
