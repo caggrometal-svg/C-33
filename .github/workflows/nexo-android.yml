@@ -52,24 +52,30 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Set APK version
+      - name: Set NEXO 0.1.6 version
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
           p = Path("android/app/build.gradle")
           s = p.read_text()
-          s = s.replace('versionCode 1', 'versionCode 4')
-          s = s.replace('versionName "1.0"', 'versionName "0.1.4"')
+          s = re.sub(r"versionCode\s+\d+", "versionCode 6", s, count=1)
+          s = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.1.6"', s, count=1)
           p.write_text(s)
           PY
 
-      - name: Build debug APK
+      - name: Build NEXO 0.1.6 debug APK
         run: cd android && ./gradlew assembleDebug --no-daemon
+
+      - name: Verify NEXO 0.1.6 version
+        run: |
+          grep -q 'versionCode 6' android/app/build.gradle
+          grep -q 'versionName "0.1.6"' android/app/build.gradle
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: NEXO-C33-0.1.4-debug
+          name: NEXO-0.1.6-debug
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

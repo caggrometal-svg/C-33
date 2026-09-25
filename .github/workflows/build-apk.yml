@@ -42,12 +42,26 @@ jobs:
       - working-directory: mobile
         run: npx cap sync android
 
+      - name: Set NEXO 0.1.6 version
+        working-directory: mobile/android
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          s = re.sub(r"versionCode\s+\d+", "versionCode 6", s, count=1)
+          s = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.1.6"', s, count=1)
+          p.write_text(s)
+          PY
       - working-directory: mobile/android
         run: ./gradlew assembleDebug
 
-      - name: Verify APK
+      - name: Verify NEXO 0.1.6 APK
         run: |
           test -f mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          grep -q 'versionCode 6' mobile/android/app/build.gradle
+          grep -q 'versionName "0.1.6"' mobile/android/app/build.gradle
           ls -lh mobile/android/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK

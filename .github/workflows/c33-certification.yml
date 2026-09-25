@@ -69,6 +69,19 @@ jobs:
       - working-directory: mobile/android
         run: ./gradlew lint
 
+      - name: Set NEXO 0.1.6 version
+        working-directory: mobile/android
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          s = re.sub(r"versionCode\s+\d+", "versionCode 6", s, count=1)
+          s = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.1.6"', s, count=1)
+          p.write_text(s)
+          PY
+
       - name: Assemble NEXO 0.1.6 APK
         working-directory: mobile/android
         run: ./gradlew assembleDebug
