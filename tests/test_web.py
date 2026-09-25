@@ -29,6 +29,16 @@ class BoundedWebToolTests(unittest.IsolatedAsyncioTestCase):
         finally:
             web_module.httpx.AsyncClient = original
 
+    async def test_ssrf_guard_rejects_private_and_credential_urls(self):
+        from tools.web import WebTool
+
+        with self.assertRaisesRegex(ValueError, "Private or non-public"):
+            await WebTool._validate_public_url("http://127.0.0.1/admin")
+        with self.assertRaisesRegex(ValueError, "Private or non-public"):
+            await WebTool._validate_public_url("http://10.0.0.1/internal")
+        with self.assertRaisesRegex(ValueError, "embedded credentials"):
+            await WebTool._validate_public_url("https://user:pass@example.com/")
+
     async def test_fetch_rejects_declared_oversized_response_before_reading(self):
         from tools.web import WebTool
 
