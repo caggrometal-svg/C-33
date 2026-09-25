@@ -52,6 +52,8 @@ _MAX_IMPORT_MESSAGES = 5000
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_GENERATION = 30
 _RATE_LIMIT_AI_READY = 12
+_RATE_LIMIT_DATA = 6
+_RATE_LIMIT_ACTION = 10
 _MAX_REPLICATION_BODY_BYTES = 2_000_000
 _rate_limit_lock = asyncio.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
@@ -112,6 +114,7 @@ class ExportRequest(BaseModel):
 
 class ImportRequest(BaseModel):
     bundle: dict[str, Any]
+    replicate: bool = True
 
 class ActionExecuteRequest(BaseModel):
     user_id: str = Field(default="anonymous", min_length=1, max_length=256)
@@ -394,7 +397,8 @@ async def replication_status() -> dict[str, Any]:
     }
 
 @app.post("/v1/export")
-async def export_user_data(payload: ExportRequest) -> dict[str, Any]:
+async def export_user_data(payload: ExportRequest, request: Request) -> dict[str, Any]:
+    await _enforce_rate_limit(request, "data-export", _RATE_LIMIT_DATA)
     st, _, _ = _require_runtime()
     async with st.pool.acquire() as conn:
         rows = await conn.fetch(
@@ -438,7 +442,8 @@ async def export_user_data(payload: ExportRequest) -> dict[str, Any]:
     return {"status": "ok", "bundle": bundle, "message_count": len(messages)}
 
 @app.post("/v1/import")
-async def import_user_data(payload: ImportRequest) -> dict[str, Any]:
+async def import_user_data(payload: ImportRequest, request: Request) -> dict[str, Any]:
+    await _enforce_rate_limit(request, "data-import", _RATE_LIMIT_DATA)
     st, _, _ = _require_runtime()
     ok, warnings = validate_bundle(payload.bundle)
     if not ok:
@@ -447,7 +452,7 @@ async def import_user_data(payload: ImportRequest) -> dict[str, Any]:
     if len(messages) > _MAX_IMPORT_MESSAGES:
         raise HTTPException(status_code=413, detail={"reason": "import_too_large"})
     try:
-        accepted = await st.import_replication_batch(messages, enqueue_replication=True)
+        accepted = await st.import_replication_batch(messages, enqueue_replication=payload.replicate)
     except ReplicationConflictError as exc:
         raise HTTPException(status_code=409, detail={"reason": "import_conflict", "detail": str(exc)}) from exc
     return {
@@ -462,6 +467,7 @@ async def import_user_data(payload: ImportRequest) -> dict[str, Any]:
 
 @app.post("/v1/actions/execute")
 async def execute_external_action(payload: ActionExecuteRequest, request: Request) -> dict[str, Any]:
+    await _enforce_rate_limit(request, "external-action", _RATE_LIMIT_ACTION)
     expected = os.getenv("CONTROL_TOKEN", "").strip()
     supplied = request.headers.get("X-C33-Action-Token", "").strip()
     if not expected or not hmac.compare_digest(supplied, expected):
