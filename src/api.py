@@ -28,6 +28,9 @@ from agent.brain import AgentResult, Brain
 from nexo.observability import RequestMetrics, normalize_request_id
 from nexo.evidence import grade_evidence
 from nexo.http_security import apply_security_headers
+from nexo.actions import ActionPolicyError, ActionRequest, ExternalActionExecutor
+from nexo.local_llm import LocalLLMClient
+from nexo.portable import export_bundle, validate_bundle
 from config import InfrastructureConfig, load_infrastructure_config
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError
 from resilience.state import PostgresState, ReplicationConflictError
@@ -43,6 +46,8 @@ remote_ai_ready: tuple[float, dict[str, Any]] | None = None
 logger = logging.getLogger("nexo.c33")
 metrics = RequestMetrics()
 READINESS_PROBE_TIMEOUT_SECONDS = 3.0
+_MAX_EXPORT_MESSAGES = 5000
+_MAX_IMPORT_MESSAGES = 5000
 
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 _RATE_LIMIT_GENERATION = 30
@@ -96,6 +101,30 @@ class ChatRequest(BaseModel):
     @classmethod
     def strip_text_fields(cls, value: Any) -> Any:
         return value.strip() if isinstance(value, str) else value
+
+class ExportRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    conversation_id: str | None = Field(default=None, max_length=256)
+    identity_id: str | None = Field(default=None, max_length=256)
+    device_id: str | None = Field(default=None, max_length=256)
+    preferences: dict[str, Any] = Field(default_factory=dict)
+    configuration: dict[str, Any] = Field(default_factory=dict)
+
+class ImportRequest(BaseModel):
+    bundle: dict[str, Any]
+
+class ActionExecuteRequest(BaseModel):
+    user_id: str = Field(default="anonymous", min_length=1, max_length=256)
+    action: str = Field(min_length=1, max_length=128)
+    url: str = Field(min_length=1, max_length=2048)
+    method: str = Field(default="POST", max_length=10)
+    scope: list[str] = Field(default_factory=list, max_length=32)
+    authorized: bool = False
+    headers: dict[str, str] = Field(default_factory=dict)
+    body: Any = None
+    timeout_ms: int = Field(default=8000, ge=500, le=30000)
+    max_response_bytes: int = Field(default=100_000, ge=1024, le=2_000_000)
+    idempotency_key: str | None = Field(default=None, max_length=128)
 
 class ResponseMeta(BaseModel):
     provider_used: str
@@ -196,6 +225,22 @@ async def lifespan(_: FastAPI):
         )
         state = PostgresState(db_pool, schema=config.database_schema)
         await state.initialize()
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """CREATE TABLE IF NOT EXISTS c33_action_audit (
+                    action_id UUID PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    target_host TEXT NOT NULL,
+                    method TEXT NOT NULL,
+                    authorized BOOLEAN NOT NULL,
+                    ok BOOLEAN NOT NULL,
+                    status_code INTEGER,
+                    response_sha256 TEXT NOT NULL,
+                    reason TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )"""
+            )
         cascade = ProviderCascade.from_environment(state)
         try:
             cascade.validate_configuration()
@@ -326,6 +371,145 @@ async def capabilities() -> dict[str, Any]:
 async def api_metrics() -> dict[str, Any]:
     """Aggregate observability only; never return user content."""
     return {"status": "ok", "service": "C-33", "metrics": metrics.snapshot()}
+
+@app.get("/v1/local-ai")
+async def local_ai_status() -> dict[str, Any]:
+    client = LocalLLMClient()
+    result = await client.probe()
+    return {"status": "ok", "deployment_sha": _deployment_sha(), **result}
+
+@app.get("/v1/replication/status")
+async def replication_status() -> dict[str, Any]:
+    st, _, _ = _require_runtime()
+    peer = await _peer_probe()
+    pending = await st.replication_pending_count()
+    return {
+        "status": "ok",
+        "deployment_sha": _deployment_sha(),
+        "backend_role": config.role,
+        "peer_url_configured": bool(config.peer_url),
+        "peer_status": peer,
+        "replication_pending": pending,
+        "quiesced": peer == "ONLINE" and pending == 0,
+    }
+
+@app.post("/v1/export")
+async def export_user_data(payload: ExportRequest) -> dict[str, Any]:
+    st, _, _ = _require_runtime()
+    async with st.pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
+            "FROM c33_messages WHERE user_id=$1 "
+            + ("AND conversation_id=$2 " if payload.conversation_id else "")
+            + "ORDER BY created_at, seq LIMIT $3",
+            *((
+                payload.user_id,
+                payload.conversation_id,
+                _MAX_EXPORT_MESSAGES,
+            ) if payload.conversation_id else (
+                payload.user_id,
+                _MAX_EXPORT_MESSAGES,
+            )),
+        )
+    messages = [
+        {
+            "id": str(row["id"]),
+            "conversation_id": str(row["conversation_id"]),
+            "user_id": str(row["user_id"]),
+            "seq": int(row["seq"]),
+            "role": str(row["role"]),
+            "content": str(row["content"]),
+            "metadata": st._metadata_dict(row["metadata"]),
+            "request_id": row["request_id"],
+            "created_at": row["created_at"].astimezone().isoformat(),
+        }
+        for row in rows
+    ]
+    memory = [dict(item) for item in messages if item["metadata"].get("memory_fact")]
+    bundle = export_bundle(
+        user_id=payload.user_id,
+        messages=messages,
+        memory=memory,
+        preferences=dict(payload.preferences),
+        configuration=dict(payload.configuration),
+        identity_id=payload.identity_id,
+        device_id=payload.device_id,
+    )
+    return {"status": "ok", "bundle": bundle, "message_count": len(messages)}
+
+@app.post("/v1/import")
+async def import_user_data(payload: ImportRequest) -> dict[str, Any]:
+    st, _, _ = _require_runtime()
+    ok, warnings = validate_bundle(payload.bundle)
+    if not ok:
+        raise HTTPException(status_code=400, detail={"reason": "invalid_bundle", "warnings": list(warnings)})
+    messages = payload.bundle.get("messages", [])
+    if len(messages) > _MAX_IMPORT_MESSAGES:
+        raise HTTPException(status_code=413, detail={"reason": "import_too_large"})
+    try:
+        accepted = await st.import_replication_batch(messages, enqueue_replication=True)
+    except ReplicationConflictError as exc:
+        raise HTTPException(status_code=409, detail={"reason": "import_conflict", "detail": str(exc)}) from exc
+    return {
+        "status": "ok",
+        "schema_version": payload.bundle.get("schema_version"),
+        "user_id": payload.bundle.get("user_id"),
+        "accepted": accepted,
+        "received": len(messages),
+        "identity_id": payload.bundle.get("identity_id"),
+        "device_id": payload.bundle.get("device_id"),
+    }
+
+@app.post("/v1/actions/execute")
+async def execute_external_action(payload: ActionExecuteRequest, request: Request) -> dict[str, Any]:
+    expected = os.getenv("CONTROL_TOKEN", "").strip()
+    supplied = request.headers.get("X-C33-Action-Token", "").strip()
+    if not expected or not hmac.compare_digest(supplied, expected):
+        raise HTTPException(status_code=401, detail={"reason": "action_control_token_required"})
+    executor = ExternalActionExecutor.from_environment()
+    try:
+        result = await executor.execute(ActionRequest(
+            action=payload.action,
+            url=payload.url,
+            method=payload.method,
+            scope=tuple(payload.scope),
+            authorized=payload.authorized,
+            headers=payload.headers,
+            body=payload.body,
+            timeout_ms=payload.timeout_ms,
+            max_response_bytes=payload.max_response_bytes,
+            idempotency_key=payload.idempotency_key,
+        ))
+    except ActionPolicyError as exc:
+        raise HTTPException(status_code=403, detail={"reason": str(exc)}) from exc
+    action_id = str(uuid.uuid4())
+    parsed_host = (__import__("urllib.parse", fromlist=["urlparse"]).urlparse(payload.url).hostname or "").lower()
+    st, _, _ = _require_runtime()
+    async with st.pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO c33_action_audit(action_id,user_id,action,target_host,method,authorized,ok,status_code,response_sha256,reason) "
+            "VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+            uuid.UUID(action_id),
+            payload.user_id,
+            payload.action,
+            parsed_host[:255],
+            payload.method.upper(),
+            payload.authorized,
+            result.ok,
+            result.status_code,
+            result.response_sha256,
+            result.reason,
+        )
+    return {
+        "status": "ok" if result.ok else "failed",
+        "action_id": action_id,
+        "action": result.action,
+        "http_status": result.status_code,
+        "body": result.body,
+        "latency_ms": result.latency_ms,
+        "response_sha256": result.response_sha256,
+        "reason": result.reason,
+    }
 
 @app.get("/status")
 async def status() -> dict[str, Any]:
