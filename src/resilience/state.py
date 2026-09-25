@@ -29,7 +29,7 @@ class ReplicationConflictError(ValueError):
     """Raised when a replicated message collides with different durable state."""
 
 
-def _normalize_created_at(value: Any) -> str:
+def _normalize_created_at(value: Any) -> datetime:
     """Canonicalize imported timestamps before they reach asyncpg."""
     if value is None or value == "":
         return datetime.now(timezone.utc).isoformat()
@@ -47,7 +47,7 @@ def _normalize_created_at(value: Any) -> str:
         raise ValueError("created_at_must_be_string")
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).isoformat()
+    return parsed.astimezone(timezone.utc)
 
 
 SCHEMA = r'''
