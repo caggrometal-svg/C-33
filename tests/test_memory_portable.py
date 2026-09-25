@@ -19,6 +19,20 @@ class MemoryEngineTests(unittest.TestCase):
         self.assertEqual(hits[0].match, "token_match")
         self.assertGreater(hits[0].score, 0)
 
+    def test_memory_match_uses_complete_tokens(self):
+        from nexo.memory_engine import MemoryEngine
+
+        class Entry:
+            user_text = "credencial del usuario"
+            assistant_text = ""
+            summary = "credencial"
+            debate_topic = ""
+            user_position = ""
+            tags = []
+            central_arguments = []
+
+        self.assertEqual(MemoryEngine.select([Entry()], "red", limit=3), [])
+
     def test_equal_relevance_prefers_newer_memory(self):
         from nexo.memory_engine import MemoryEngine
 
