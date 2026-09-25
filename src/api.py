@@ -102,6 +102,7 @@ class ResponseMeta(BaseModel):
     web_searches: list[str] = Field(default_factory=list)
     verification_ok: bool | None = None
     verification_warnings: list[str] = Field(default_factory=list)
+    evidence_grade: str | None = None
     web_sources_details: list[dict[str, Any]] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
