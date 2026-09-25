@@ -147,7 +147,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_timeout_is_capped_for_failover_budget(self):
         budget = DeadlineBudget(18000)
-        self.assertEqual(budget.provider_timeout_ms(9000), 6500)
+        self.assertEqual(budget.provider_timeout_ms(12000), 9000)
         self.assertLessEqual(budget.provider_timeout_ms(9000), budget.remaining_ms)
 
     async def test_sequential_timeout_failover_reaches_third_provider(self):
@@ -477,8 +477,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             for key in previous:
                 os.environ.pop(key, None)
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":6500,"capabilities":["chat","stream","fast"]},'
-                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"legacy","failure_domain":"vireonix.ai","timeout_ms":6500,"capabilities":["chat","stream","reasoning"]}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":9000,"capabilities":["chat","stream","fast"]},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"legacy","failure_domain":"vireonix.ai","timeout_ms":9000,"capabilities":["chat","stream","reasoning"]}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "kilo,vireonix"
             cascade = ProviderCascade.from_environment(FakeState())
@@ -508,7 +508,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop(key, None)
             cascade = ProviderCascade.from_environment(FakeState())
             self.assertEqual(len(cascade.providers), 2)
-            self.assertEqual([p.timeout_ms for p in cascade.providers], [6500, 6500])
+            self.assertEqual([p.timeout_ms for p in cascade.providers], [9000, 9000])
             self.assertEqual(len(set(p.failure_domain for p in cascade.providers)), 2)
             self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "vireonix"])
             self.assertEqual([p.model for p in cascade.providers], ["kilo-auto/free", "auto"])
@@ -529,8 +529,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":6500},'
-                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":6500}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":9000},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":9000}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "kilo"
             os.environ["AI_DISABLED_PROVIDERS"] = ""
@@ -555,8 +555,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":6500},'
-                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":6500}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":9000},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":9000}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "vireonix,kilo"
             os.environ["AI_DISABLED_PROVIDERS"] = "kilo"
@@ -575,7 +575,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         previous = {key: os.environ.get(key) for key in ("AI_PROVIDERS_JSON", "AI_PROVIDER_ORDER", "REQUIRE_PROVIDER_REDUNDANCY")}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"paid","base_url":"https://paid-provider.invalid/v1","model":"paid-model","failure_domain":"paid-provider.invalid","timeout_ms":6500}]'
+                '[{"id":"paid","base_url":"https://paid-provider.invalid/v1","model":"paid-model","failure_domain":"paid-provider.invalid","timeout_ms":9000}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "paid"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
@@ -592,8 +592,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         previous = {key: os.environ.get(key) for key in ("AI_PROVIDERS_JSON", "AI_PROVIDER_ORDER", "REQUIRE_PROVIDER_REDUNDANCY")}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"kilo-auto/free","failure_domain":"kilo.ai","timeout_ms":6500,"api_key_env":"SOME_BILLABLE_KEY"},'
-                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":6500}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"kilo-auto/free","failure_domain":"kilo.ai","timeout_ms":9000,"api_key_env":"SOME_BILLABLE_KEY"},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":9000}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "kilo,vireonix"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "true"
