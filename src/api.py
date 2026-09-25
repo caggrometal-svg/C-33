@@ -1092,9 +1092,21 @@ async def replicate(request: Request) -> JSONResponse:
         if not isinstance(messages, list): raise ValueError
     except (ValueError, KeyError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=400, detail="invalid_replication_payload") from exc
+    if len(messages) > 100:
+        raise HTTPException(status_code=413, detail="replication_batch_too_large")
     st, _, _ = _require_runtime()
     try:
         accepted = await st.import_replication_batch(messages)
     except ReplicationConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return JSONResponse({"status":"ok","accepted":accepted,"received":len(messages)})
+    if accepted != len(messages):
+        raise HTTPException(status_code=409, detail={"reason":"replication_batch_not_fully_accepted","accepted":accepted,"received":len(messages)})
+    accepted_ids = [str(item.get("id", "")) for item in messages]
+    receipt_sha256 = hashlib.sha256(raw).hexdigest()
+    return JSONResponse({
+        "status":"ok",
+        "accepted":accepted,
+        "received":len(messages),
+        "accepted_ids":accepted_ids,
+        "receipt_sha256":receipt_sha256,
+    })
