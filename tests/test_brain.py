@@ -22,6 +22,26 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertEqual(hub.names, ("math",))
         self.assertEqual(__import__("asyncio").run(hub.invoke("math", 41)), 42)
 
+    def test_model_hub_exposes_profiles_and_selects_preference(self):
+        from nexo.architecture import ModelHub
+
+        class Spec:
+            provider_id = "alpha"
+            model = "m-alpha"
+            failure_domain = "alpha.test"
+
+        class FakeCascade:
+            configured_provider_ids = ["alpha"]
+            providers = [Spec()]
+
+            async def complete(self, messages, budget):
+                return "generation"
+
+        hub = ModelHub(FakeCascade())
+        self.assertEqual(hub.profiles[0].model_id, "m-alpha")
+        self.assertEqual(hub.select("alpha").provider_id, "alpha")
+        self.assertEqual(hub.select("missing").provider_id, "alpha")
+
     def test_model_hub_delegates_to_provider_cascade(self):
         from nexo.architecture import ModelHub
 
