@@ -169,6 +169,7 @@ class WebTool:
     """HTTP web tool isolated from the agent loop and model provider."""
 
     MAX_PAGE_BYTES = 1_000_000
+    MAX_QUERY_CHARS = 2_000
 
     def __init__(self, timeout: float = 15.0, *, max_results: int = 5) -> None:
         if timeout <= 0:
@@ -186,6 +187,8 @@ class WebTool:
         query = query.strip()
         if not query:
             return []
+        if len(query) > self.MAX_QUERY_CHARS:
+            raise ValueError("web_query_too_long")
 
         query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
         started = time.monotonic()

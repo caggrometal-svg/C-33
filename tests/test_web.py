@@ -29,6 +29,13 @@ class BoundedWebToolTests(unittest.IsolatedAsyncioTestCase):
         finally:
             web_module.httpx.AsyncClient = original
 
+    async def test_search_rejects_oversized_query_before_transport(self):
+        from tools.web import WebTool
+
+        tool = WebTool(timeout=2, max_results=2)
+        with self.assertRaisesRegex(ValueError, "web_query_too_long"):
+            await tool.search("x" * (WebTool.MAX_QUERY_CHARS + 1))
+
     async def test_ssrf_guard_rejects_private_and_credential_urls(self):
         from tools.web import WebTool
 
