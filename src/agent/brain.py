@@ -298,6 +298,18 @@ class Brain:
                     "verification_required": self.verification_policy.requires_research(prompt),
                     "knowledge_state": KnowledgeState.UNDETERMINED.value,
                     "degraded_mode": self.degraded_policy.decide(provider_available=False, local_available=True).mode.value,
+                    "mode_matrix": {
+                        "internet": mode_entry.internet,
+                        "memory": mode_entry.memory,
+                        "tools": mode_entry.tools,
+                        "chat_optional": mode_entry.chat_optional,
+                    },
+                    "autonomy_contract": {
+                        "max_steps": autonomy_contract.max_steps,
+                        "approval_required": autonomy_contract.approval_required,
+                        "operations": autonomy_contract.operations,
+                    },
+                    "master_test_contract": master_test_contract,
                     "mode": mode_plan["mode"],
                     "selected_mode": mode_plan["selected_mode"],
                     "mode_reason": mode_plan["reason"],
@@ -329,7 +341,7 @@ class Brain:
                 "final_reason": generation.meta.final_reason,
                 "system_status": generation.meta.system_status,
                 "degraded_mode": self.degraded_policy.decide(
-                    web_available=not (route.use_web and not sources),
+                    web_available=bool(sources) or not self.verification_policy.requires_research(prompt),
                     provider_available=True,
                     memory_available=True,
                     local_available=True,
