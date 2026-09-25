@@ -43,11 +43,66 @@ class Brain:
         self.tools = ToolHub()
         self.tools.register("web_search", self.web.search, network=True, risk="medium")
         self.tools.register("web_fetch", self.web.fetch, network=True, risk="medium")
+        self.tools.register("memory_search", self._tool_memory_search, risk="low")
+        self.tools.register("memory_store", self._tool_memory_store, mutates_state=True, risk="medium")
         self.tools.register("calculate", calculate)
+        self.tools.register("calculator", calculate)
         self.tools.register("utc_time", utc_time)
         self.models = ModelHub(cascade)
         self.orchestrator = NexoOrchestrator()
         self.verifier = VerificationEngine()
+
+    async def _tool_memory_search(self, query: str, user_id: str = "anonymous", limit: int = 8) -> list[dict[str, Any]]:
+        """Expose durable memory through the common ToolHub boundary."""
+        query = str(query or "").strip()
+        if not query:
+            raise ValueError("memory_search query cannot be empty")
+        limit = max(1, min(int(limit), 16))
+        entries = await self.state.search_memory(str(user_id), query, limit=limit)
+        return [
+            {
+                "id": entry.id,
+                "created_at": entry.created_at,
+                "summary": entry.summary,
+                "tags": entry.tags,
+                "debate_topic": entry.debate_topic,
+            }
+            for entry in entries
+        ]
+
+    async def _tool_memory_store(
+        self,
+        content: str,
+        *,
+        user_id: str = "anonymous",
+        conversation_id: str = "tool-memory",
+        tags: list[str] | None = None,
+        summary: str | None = None,
+    ) -> dict[str, Any]:
+        """Store an explicit memory fact using the durable message store."""
+        content = str(content or "").strip()
+        if not content:
+            raise ValueError("memory_store content cannot be empty")
+        metadata = {
+            "memory_fact": True,
+            "summary": (summary or content[:240]).strip(),
+            "tags": list(tags or []),
+            "source": "tool",
+        }
+        message = await self.state.append_message(
+            conversation_id=str(conversation_id).strip() or "tool-memory",
+            user_id=str(user_id).strip() or "anonymous",
+            role="system",
+            content=content,
+            metadata=metadata,
+            enqueue_replication=True,
+        )
+        return {
+            "id": str(message.id),
+            "stored": True,
+            "summary": metadata["summary"],
+            "source": "tool",
+        }
 
     async def prepare_messages(
         self,
