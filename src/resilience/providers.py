@@ -302,7 +302,7 @@ class ProviderCascade:
         """Probe all configured providers concurrently without poisoning runtime circuits."""
         attempts: list[dict[str, Any]] = []
 
-        async def probe_one(index: int, spec: ProviderSpec) -> tuple[str, int, ProviderSpec, int, str | None]:
+        async def probe_one(index: int, spec: ProviderSpec) -> tuple[str, int, ProviderSpec, int, str | None, str]:
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=250)
             if timeout_ms < 750:
                 return ("skip", index, spec, 0, "probe_budget_exhausted")
@@ -314,7 +314,7 @@ class ProviderCascade:
                 timeout_ms,
             )
             try:
-                await self._complete_one(spec, messages, timeout_ms, probe=True)
+                text = await self._complete_one(spec, messages, timeout_ms, probe=True)
                 latency = int((time.monotonic() - started) * 1000)
                 # Readiness is observational only: it must not open/close the
                 # production circuit based solely on a probe request.
@@ -323,7 +323,7 @@ class ProviderCascade:
                     spec.provider_id,
                     latency,
                 )
-                return ("ok", index, spec, latency, None)
+                return ("ok", index, spec, latency, None, text)
             except GenerationFailure as exc:
                 latency = int((time.monotonic() - started) * 1000)
                 attempts.append({
@@ -340,7 +340,7 @@ class ProviderCascade:
                     exc.http_status,
                     latency,
                 )
-                return ("fail", index, spec, latency, exc.reason)
+                return ("fail", index, spec, latency, exc.reason, "")
             except asyncio.CancelledError:
                 raise
 
@@ -361,14 +361,14 @@ class ProviderCascade:
                     break
                 for task in done:
                     result = task.result()
-                    status, index, spec, latency, reason = result
+                    status, index, spec, latency, reason, probe_text = result
                     if status == "ok":
                         for other in pending:
                             other.cancel()
                         if pending:
                             await asyncio.gather(*pending, return_exceptions=True)
                         return GenerationResult(
-                            text="C33_AI_READY_OK",
+                            text=probe_text,
                             meta=ProviderMeta(
                                 spec.provider_id,
                                 spec.model,
