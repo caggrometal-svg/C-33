@@ -109,6 +109,7 @@ class ProviderCascade:
         free_allowlist = {
             "api.kilo.ai": "kilo-auto/free",
             "vireonix.ai": "auto",
+            "text.pollinations.ai": "openai",
         }
         specs: list[ProviderSpec] = []
 
@@ -134,6 +135,8 @@ class ProviderCascade:
                     model = "kilo-auto/free"
                 elif host == "vireonix.ai":
                     model = "auto"
+                elif host == "text.pollinations.ai":
+                    model = "openai"
                 raw_capabilities = item.get("capabilities", ("chat", "stream"))
                 if isinstance(raw_capabilities, str):
                     capabilities = tuple(dict.fromkeys(
@@ -170,14 +173,8 @@ class ProviderCascade:
                     "kilo.ai",
                     9000,
                 ),
-                ProviderSpec(
-                    "vireonix",
-                    "https://vireonix.ai/v1",
-                    "auto",
-                    None,
-                    "vireonix.ai",
-                    9000,
-                ),
+                ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 9000),
+                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai", None, "pollinations.ai", 9000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
@@ -442,7 +439,8 @@ class ProviderCascade:
         timeout = httpx.Timeout(timeout_ms/1000, connect=min(2.0,timeout_ms/1000), read=timeout_ms/1000, write=min(2.0,timeout_ms/1000), pool=min(1.0,timeout_ms/1000))
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, transport=self.transport) as client:
-                response = await client.post(f"{spec.base_url}/chat/completions",headers=headers,json=payload)
+                endpoint = (f"{spec.base_url}/openai" if (urlparse(spec.base_url).hostname or "").lower() == "text.pollinations.ai" else f"{spec.base_url}/chat/completions")
+                response = await client.post(endpoint,headers=headers,json=payload)
         except asyncio.CancelledError:
             raise
         except httpx.ConnectTimeout as exc:
@@ -530,7 +528,8 @@ class ProviderCascade:
             try:
                 timeout=httpx.Timeout(timeout_ms/1000,connect=min(2.0,timeout_ms/1000),read=timeout_ms/1000,write=2.0,pool=1.0)
                 async with httpx.AsyncClient(timeout=timeout,follow_redirects=True,transport=self.transport) as client:
-                    async with client.stream("POST",f"{spec.base_url}/chat/completions",headers=headers,json=payload) as response:
+                    endpoint = (f"{spec.base_url}/openai" if (urlparse(spec.base_url).hostname or "").lower() == "text.pollinations.ai" else f"{spec.base_url}/chat/completions")
+                    async with client.stream("POST",endpoint,headers=headers,json=payload) as response:
                         logger.info("[NEXO_DEBUG_PROVIDER] stream_http provider=%s status=%s", spec.provider_id, response.status_code)
                         if response.status_code!=200:
                             if response.status_code==429:
