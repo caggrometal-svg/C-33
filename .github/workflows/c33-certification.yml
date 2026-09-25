@@ -345,12 +345,19 @@ jobs:
           import hashlib
           migrated_bundle["sha256"] = hashlib.sha256(raw_digest).hexdigest()
 
-          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle}, timeout=12)
+          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": False}, timeout=12)
           if imported.status_code != 200:
               raise SystemExit(f"import failed: {imported.status_code} {imported.text}")
           import_data = imported.json()
           if int(import_data.get("accepted", 0)) != len(migrated_messages):
               raise SystemExit(f"import did not accept full bundle: {json.dumps(import_data)}")
+
+          local_ai = httpx.get(base + "/v1/local-ai", timeout=8)
+          if local_ai.status_code != 200:
+              raise SystemExit(f"local AI status surface failed: {local_ai.status_code} {local_ai.text}")
+          local_ai_data = local_ai.json()
+          if local_ai_data.get("status") != "ok" or local_ai_data.get("provider") != "local":
+              raise SystemExit(f"invalid local AI status surface: {json.dumps(local_ai_data)}")
 
           action_gate = httpx.post(
               base + "/v1/actions/execute",
