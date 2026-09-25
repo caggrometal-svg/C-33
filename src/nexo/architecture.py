@@ -52,6 +52,14 @@ class ToolHub:
         return result
 
 
+@dataclass(frozen=True, slots=True)
+class ModelProfile:
+    provider_id: str
+    model_id: str
+    failure_domain: str
+    capabilities: tuple[str, ...] = ("chat", "stream")
+
+
 class ModelHub:
     """Provider-neutral model surface backed by the existing cascade."""
 
@@ -63,6 +71,21 @@ class ModelHub:
     @property
     def provider_ids(self) -> tuple[str, ...]:
         return tuple(getattr(self.cascade, "configured_provider_ids", []))
+
+    @property
+    def profiles(self) -> tuple[ModelProfile, ...]:
+        profiles = []
+        for spec in getattr(self.cascade, "providers", []):
+            profiles.append(ModelProfile(spec.provider_id, spec.model, spec.failure_domain))
+        return tuple(profiles)
+
+    def select(self, preferred_provider: str | None = None) -> ModelProfile | None:
+        preferred = (preferred_provider or "").strip()
+        if preferred:
+            for profile in self.profiles:
+                if profile.provider_id == preferred:
+                    return profile
+        return self.profiles[0] if self.profiles else None
 
     async def complete(self, messages: list[dict[str, str]], budget: Any) -> Any:
         return await self.cascade.complete(messages, budget)
