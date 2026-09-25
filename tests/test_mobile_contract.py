@@ -41,6 +41,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('client-deterministic-fallback', app)
         self.assertIn('used_local_fallback', app)
 
+    def test_bounded_requests_join_pagehide_cancellation_set(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("activeControllers.add(controller);", app)
+        self.assertIn("activeControllers.delete(controller);", app)
+
     def test_frontend_backend_requests_disable_http_cache(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertGreaterEqual(app.count('cache: "no-store"'), 2)

@@ -267,9 +267,13 @@ function normalizeError(error) {
 
 async function fetchBounded(url, options = {}, timeoutMs = CLIENT_TIMEOUT_MS) {
   const controller = new AbortController();
+  activeControllers.add(controller);
   const timer = setTimeout(() => controller.abort(), Math.max(250, timeoutMs));
   try { return await fetch(url, { ...options, signal: controller.signal, cache: "no-store" }); }
-  finally { clearTimeout(timer); }
+  finally {
+    clearTimeout(timer);
+    activeControllers.delete(controller);
+  }
 }
 
 async function probeBackend(index, { ignoreCircuit = false } = {}) {
