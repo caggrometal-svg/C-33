@@ -177,7 +177,14 @@ class ModelHub:
     def profiles(self) -> tuple[ModelProfile, ...]:
         profiles = []
         for spec in getattr(self.cascade, "providers", []):
-            profiles.append(ModelProfile(spec.provider_id, spec.model, spec.failure_domain))
+            profiles.append(
+                ModelProfile(
+                    spec.provider_id,
+                    spec.model,
+                    spec.failure_domain,
+                    tuple(getattr(spec, "capabilities", ("chat", "stream"))),
+                )
+            )
         return tuple(profiles)
 
     def select(self, preferred_provider: str | None = None) -> ModelProfile | None:
