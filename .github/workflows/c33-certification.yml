@@ -201,8 +201,6 @@ jobs:
     needs: [backend, mobile]
     runs-on: ubuntu-latest
     env:
-      C33_BASE_URL: ${{ vars.C33_BASE_URL }}
-      C33_PEER_BASE_URL: ${{ vars.C33_PEER_BASE_URL }}
       EXPECTED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
@@ -216,11 +214,12 @@ jobs:
           import json, os, time, uuid
           import httpx
 
-          base = os.environ.get("C33_BASE_URL", "").strip().rstrip("/")
-          peer_base = os.environ.get("C33_PEER_BASE_URL", "").strip().rstrip("/")
+          endpoints = json.loads(open("infra/c33-endpoints.json", encoding="utf-8").read())
+          base = str(endpoints.get("production", "")).strip().rstrip("/")
+          peer_base = str(endpoints.get("peer", "")).strip().rstrip("/")
           expected = os.environ["EXPECTED_SHA"]
           if not base or not peer_base:
-              raise SystemExit("C33 live endpoints are not configured in repository variables")
+              raise SystemExit("C33 live endpoint manifest is incomplete")
           deadline = time.time() + 180
           health_data = None
 
