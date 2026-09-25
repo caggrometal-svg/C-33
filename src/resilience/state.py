@@ -22,6 +22,8 @@ from memory.store import MemoryEntry
 
 _MAX_REPLICATION_TEXT_CHARS = 20_000
 _MAX_REPLICATION_ID_CHARS = 256
+_POSTGRES_BIGINT_MIN = 1
+_POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
 
 class ReplicationConflictError(ValueError):
     """Raised when a replicated message collides with different durable state."""
@@ -562,8 +564,8 @@ class PostgresState:
                             seq = int(seq_raw)
                         except (TypeError, ValueError) as exc:
                             raise ValueError("seq_must_be_integer") from exc
-                        if seq < 1:
-                            raise ValueError("seq_must_be_positive")
+                        if not _POSTGRES_BIGINT_MIN <= seq <= _POSTGRES_BIGINT_MAX:
+                            raise ValueError("seq_out_of_range")
                         raw_metadata = item.get("metadata")
                         if raw_metadata is None:
                             metadata: dict[str, Any] = {}
@@ -614,11 +616,20 @@ class PostgresState:
                             )
                             if request_owner and request_owner["id"] != mid:
                                 raise ReplicationConflictError(f"request_conflict:{conversation_id}:{request_id}:{role}")
+                        try:
+                            metadata_json = json.dumps(
+                                metadata,
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
+                        except (TypeError, ValueError) as exc:
+                            raise ValueError("metadata_json_invalid") from exc
                         await conn.execute(
                             "INSERT INTO c33_messages(id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at) "
                             "VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::timestamptz)",
                             mid, conversation_id, user_id, seq, role, content,
-                            json.dumps(metadata, ensure_ascii=False), request_id, created_at,
+                            metadata_json, request_id, created_at,
                         )
                         if enqueue_replication:
                             await conn.execute(
