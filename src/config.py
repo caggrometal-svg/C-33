@@ -104,7 +104,8 @@ def _bool(name: str, default: bool) -> bool:
 def load_infrastructure_config(dotenv_path: str | None = ".env") -> InfrastructureConfig:
     if dotenv_path:
         load_dotenv(dotenv_path=dotenv_path, override=False)
-    model_api_key = os.getenv("MODEL_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip() or None
+    # C-33 FREE mode: no paid/BYOK inference keys are consumed by the core.
+    model_api_key = None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
     model_name = os.getenv("MODEL_NAME", "auto").strip() or "auto"
     environment = os.getenv("APP_ENV", "production").strip() or "production"
@@ -114,6 +115,8 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         legacy_public = os.getenv("IAC33_PUBLIC_BASE_URL", "").strip()
         if legacy_public:
             os.environ["PUBLIC_BASE_URL"] = legacy_public
+    if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
+        raise ConfigurationError("MODEL_BASE_URL must point to an approved zero-cost provider")
     return InfrastructureConfig(
         port=_required_port(),
         database_url=_optional_database_url(),
