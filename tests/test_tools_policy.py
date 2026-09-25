@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 
 
@@ -22,6 +23,23 @@ class ToolPolicyTests(unittest.TestCase):
         self.assertEqual(description['name'], 'web')
         self.assertTrue(description['network'])
         self.assertEqual(description['risk'], 'medium')
+
+    def test_tool_hub_enforces_capability_policy(self):
+        from nexo.architecture import ToolHub
+
+        async def exercise():
+            hub = ToolHub()
+            hub.register('web', lambda: 'ok', network=True, risk='medium')
+
+            with self.assertRaises(PermissionError):
+                await hub.invoke('web', network_allowed=False)
+
+            self.assertEqual(
+                await hub.invoke('web', network_allowed=True),
+                'ok',
+            )
+
+        asyncio.run(exercise())
 
 
 if __name__ == '__main__':
