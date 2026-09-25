@@ -2,35 +2,22 @@
 
 Fuente de verdad: rama `main`.
 
-HEAD actual de código: `c9f7adcdfd87bb5aad64c8471ff68a689b1746c1`.
+SHA certificado de código: `55a2d62213a37563398d65d9585329eff87c11d2`.
 
-El repositorio contiene implementación y contratos hasta ETAPA 40 — AUTO MODE, además de las secciones de cierre 41-60.
+C-33 Certification run 292: **PASS**.
+NEXO Progress Gate run 146: **PASS**.
+Railway production deployment `f86bc410-25f2-44f9-a349-84f56b2265f9`: **SUCCESS**.
 
-## Evidencia del ciclo
+## Evidencia live
+El gate certificó 200 en:
+`/health`, `/ready`, `/v1/chat`, Web/IA remota, `/v1/ai-ready`, segundo turno de conversación, `/v1/ai/stream`, `/status` y `/v1/ai/diagnostics`.
 
-- NEXO Progress Gate para el SHA de código `b2caf0f...`: PASS.
-- El último C-33 Certification completo antes de las correcciones falló en Web/IA remota con HTTP 504: Vireonix ~5.5 s y Animica ~5.75 s; la petición terminó ~12.3 s.
-- En este ciclo se corrigieron el aislamiento PostgreSQL por esquema, el presupuesto de failover y la prueba de tercer proveedor.
-- Railway production fue configurado con 18 s de presupuesto backend, 22 s de cliente y 8 s de red.
-- La certificación de C-33 del nuevo HEAD `c9f7adc...` está en ejecución.
+El último problema de provider quedó resuelto cambiando la topología a Kilo Auto Free → BlockRun Nemotron → Vireonix y conservando el límite de 4.5 s por intento.
 
-## Estado
+## Estado de trabajo
+C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memoria base, Model Hub, Tool Hub, Orchestrator, contratos 23-40 y cierre contractual 41-60: **VERDE en el alcance certificado actual**.
 
-C-33 / health / readiness: implementado.
-Circuit breaker: implementado y probado.
-Failover: implementado; falta evidencia inducida reproducible.
-Web / fuentes: implementado parcialmente; E2E live pendiente de cierre.
-Memoria: PostgreSQL + ranking determinista; E2E pendiente.
-Model Hub / Tool Hub / Orchestrator: implementados; runtime completo pendiente.
-ETAPAS 23-40: contratos presentes; Auto Mode integrado en Brain; certificación de producción pendiente.
-Secciones 41-60: contratos y tests presentes; prueba maestra aún no cerrada.
-IA local real: pendiente.
-Export/import de usuario: parcial.
-Autonomía externa: pendiente.
-Portabilidad completa: parcial.
-Descentralización completa: pendiente.
-Android release certificada: pendiente.
+## Siguiente etapa
+IA local real, export/import UX completo, acciones externas, portabilidad completa y descentralización completa son trabajo posterior. No bloquean el cierre actual de ETAPA 40.
 
-Regla: módulo existente no equivale a etapa certificada. La certificación requiere contrato, tests, commit, SHA desplegado, runtime observado y recuperación documentada.
-
-Detalle integral: `docs/NEXO-AUDIT-2026-09-25.md`.
+Regla: módulo existente no equivale a madurez total; cada expansión futura debe pasar el mismo contrato → tests → SHA → runtime → recovery.
