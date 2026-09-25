@@ -59,6 +59,8 @@ class Brain:
         self.execution_guard = BoundedOrchestrator(max_steps=8)
         self.verification_policy = VerificationPolicy()
         self.privacy_policy = PrivacyPolicy()
+        self.privacy_default = PrivacyByDefaultPolicy()
+        self.mode_router = AutoModeRouter()
         self.cache = TTLCache()
 
     async def _tool_memory_search(self, query: str, user_id: str = "anonymous", limit: int = 8) -> list[dict[str, Any]]:
@@ -143,13 +145,22 @@ class Brain:
 
         sources: list[str] = []
         selection = self.models.select_for_task(prompt)
+        mode_plan = self.mode_router.plan(prompt, has_memory=bool(memory_hits), authorized_action=False)
+        privacy_decision = self.privacy_default.decide(prompt)
         route = self.orchestrator.plan(prompt, memory_hits)
-        if selection.local_required:
+        if selection.local_required or privacy_decision.local_required:
             route = type(route)(
                 use_memory=route.use_memory,
                 use_web=False,
                 verify=False,
                 reason="local+" + ("memory" if route.use_memory else "direct"),
+            )
+        elif not privacy_decision.allow_network:
+            route = type(route)(
+                use_memory=route.use_memory,
+                use_web=False,
+                verify=False,
+                reason=route.reason + "+privacy",
             )
         if route.use_web and budget.remaining_ms >= 4_000:
             try:
@@ -254,7 +265,9 @@ class Brain:
             budget=budget,
         )
         selection = self.models.select_for_task(prompt)
-        preferred_provider = selection.selected_provider if not selection.local_required else None
+        mode_plan = self.mode_router.plan(prompt, has_memory=bool(memory_hits), authorized_action=False)
+        privacy_decision = self.privacy_default.decide(prompt)
+        preferred_provider = selection.selected_provider if not selection.local_required and not privacy_decision.local_required else None
         if selection.local_required and selection.selected_provider is None:
             response = LocalModel.complete(prompt, selection.reason)
             return AgentResult(
@@ -277,6 +290,10 @@ class Brain:
                     "request_cycle": list(self.request_cycle.steps),
                     "verification_required": self.verification_policy.requires_research(prompt),
                     "knowledge_state": KnowledgeState.UNDETERMINED.value,
+                    "mode": mode_plan["mode"],
+                    "selected_mode": mode_plan["selected_mode"],
+                    "mode_reason": mode_plan["reason"],
+                    "mode_contract": mode_plan,
                 },
             )
 
@@ -315,6 +332,10 @@ class Brain:
                     if self.verification_policy.requires_research(prompt)
                     else KnowledgeState.UNDETERMINED.value
                 ),
+                "mode": mode_plan["mode"],
+                "selected_mode": mode_plan["selected_mode"],
+                "mode_reason": mode_plan["reason"],
+                "mode_contract": mode_plan,
             },
         )
 
