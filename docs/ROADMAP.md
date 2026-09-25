@@ -65,13 +65,15 @@ Durable conversation context and deterministic ranking exist. Portable bundles e
 
 Next: short-term/session/persistent/research layers, confidence/importance/expiration/deduplication and complete user-facing export/import.
 
-### Model Hub — PARTIAL / SELECTION POLICY IMPLEMENTED
+### Model Hub — PHASE 21 — COMPLETE (DEPLOYED)
 
 Provider-neutral profiles now carry capability metadata. `ModelSelectionPolicy` classifies simple, reasoning, summary, privacy and local intents and chooses a matching configured capability deterministically.
 
 `ModelHub.select_for_task()` is connected to the real `ProviderCascade` for remote generation, including SSE. Privacy/local intent does not silently fall back to a remote provider when no local capability exists; the current deterministic local fallback is explicitly marked degraded.
 
-Next: cost/latency-aware selection and a real local provider.
+Runtime verification: Railway production deployment `b953c1c0-f64d-4dfd-a1f4-d1414ec60d9d` is `SUCCESS` on source SHA `00631f51004bfe4980054f73b577759a4abcc3e7`. The container started successfully and Railway recorded `GET /health` → `200 OK` after the phase-21 changes.
+
+Phase-21 contract is therefore closed for the implemented scope. Remaining Model Hub work is explicitly later: cost/latency-aware optimization and a real local provider.
 
 ### Tool Hub — PARTIAL
 
