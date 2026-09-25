@@ -172,7 +172,7 @@ class VerificationEngine:
         source_check = self.verify_sources(sources)
         citations = [int(match) for match in self._citation_re.findall(response or "")]
         warnings = list(source_check.warnings)
-        if citations and max(citations) > len(source_check.sources):
+        if citations and (min(citations) < 1 or max(citations) > len(source_check.sources)):
             warnings.append("citation_out_of_range")
         if source_check.sources and not citations:
             warnings.append("web_sources_without_inline_citations")
