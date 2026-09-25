@@ -191,8 +191,7 @@ async def _database_ping() -> bool:
     return bool(state and await state.database_ping())
 
 async def _portable_import_selftest(st: PostgresState) -> None:
-    enabled = True
-    logger.info("[NEXO_IMPORT_SELFTEST] forced_one_shot=true")
+    enabled = os.getenv("C33_IMPORT_SELFTEST", "").strip().lower() in {"1", "true", "yes", "on"}
     if not enabled:
         return
     clone_id = uuid.uuid4()
@@ -221,7 +220,7 @@ async def _portable_import_selftest(st: PostgresState) -> None:
         async with st.pool.acquire() as conn:
             await conn.execute("DELETE FROM c33_messages WHERE id=$1", clone_id)
             await conn.execute("DELETE FROM c33_conversation_heads WHERE conversation_id=$1", clone_conversation)
-        logger.info("[NEXO_IMPORT_SELFTEST] PASS")
+        print("[NEXO_IMPORT_SELFTEST] PASS", flush=True)
     except Exception as exc:
         try:
             async with st.pool.acquire() as conn:
