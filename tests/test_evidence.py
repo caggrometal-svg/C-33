@@ -14,6 +14,12 @@ class EvidenceGradeTests(unittest.TestCase):
         self.assertEqual(result.grade, 'INVALID')
         self.assertIn('web_sources_without_inline_citations', result.warnings)
 
+    def test_invalid_zero_citation_is_rejected(self):
+        from nexo.evidence import grade_evidence
+        result = grade_evidence('Dato respaldado [0].', ['https://example.com'])
+        self.assertEqual(result.grade, 'INVALID')
+        self.assertIn('citation_out_of_range', result.warnings)
+
     def test_no_sources_is_explicitly_unverified(self):
         from nexo.evidence import grade_evidence
         self.assertEqual(grade_evidence('Respuesta.', []).grade, 'NONE')
