@@ -10,8 +10,8 @@
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const characters = "01ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzアイウエオカキクケコサシスセソタチツテトナニヌネノ#$%&*+-=<>[]{}";
   const fontSize = 15;
-  const trailMin = 8;
-  const trailMax = 20;
+  const trailMin = 10;
+  const trailMax = 24;
   const maxFrameMs = 34;
   let width = 0;
   let height = 0;
@@ -52,7 +52,7 @@
     }
 
     lastDrawAt = now;
-    ctx.fillStyle = "rgba(1, 5, 2, 0.075)";
+    ctx.fillStyle = "rgba(1, 5, 2, 0.055)";
     ctx.fillRect(0, 0, width, height);
     ctx.font = fontSize + "px monospace";
     ctx.textBaseline = "top";
@@ -66,7 +66,7 @@
         if (y < -fontSize || y > height + fontSize) continue;
 
         const head = j === 0;
-        const alpha = Math.max(0.045, (1 - j / length) * (head ? 0.98 : 0.72));
+        const alpha = Math.max(0.065, (1 - j / length) * (head ? 1.0 : 0.78));
         ctx.fillStyle = head
           ? `rgba(218,255,210,${alpha})`
           : `rgba(57,255,20,${alpha})`;
@@ -80,7 +80,7 @@
 
     for (let i = 0; i < columns; i += 1) {
       if (drops[i] * fontSize > height + (trails[i] || trailMin) * fontSize) {
-        if (Math.random() > 0.90) resetColumn(i);
+        resetColumn(i);
       } else {
         drops[i] += 1;
       }
