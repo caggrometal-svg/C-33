@@ -17,7 +17,7 @@
 3. Failover: cada proveedor queda limitado a 4.5 s para preservar presupuesto global.
 4. Failover: regresión reproducible exige alcanzar un tercer proveedor dentro de 18 s.
 5. Producción: backend 18 s, cliente 22 s, red 8 s.
-6. Topología FREE: Kilo Auto Free → Vireonix; no se usa ni se requiere una cuenta, crédito o proveedor de pago.
+6. Topología FREE blindada: Kilo Auto Free → Vireonix; la ruta operativa no requiere créditos ni proveedor de pago y el código rechaza proveedores/modelos de pago y API keys de inferencia.
 7. La respuesta real no presenta el fallback local determinista como un LLM.
 
 ## Estado 0-40
