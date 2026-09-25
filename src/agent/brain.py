@@ -12,6 +12,7 @@ from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, V
 from nexo.sources import SourceLedger
 from nexo.tools_builtin import calculate, utc_time
 from nexo.memory_engine import MemoryEngine
+from nexo.phases_23_30 import BoundedOrchestrator, KnowledgeState, PrivacyPolicy, RequestCycle, TTLCache, VerificationPolicy, redact_secrets
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
@@ -51,6 +52,13 @@ class Brain:
         self.models = ModelHub(cascade)
         self.orchestrator = NexoOrchestrator()
         self.verifier = VerificationEngine()
+        self.request_cycle = RequestCycle()
+        if not self.request_cycle.validate():
+            raise RuntimeError("invalid_request_cycle_contract")
+        self.execution_guard = BoundedOrchestrator(max_steps=8)
+        self.verification_policy = VerificationPolicy()
+        self.privacy_policy = PrivacyPolicy()
+        self.cache = TTLCache()
 
     async def _tool_memory_search(self, query: str, user_id: str = "anonymous", limit: int = 8) -> list[dict[str, Any]]:
         """Expose durable memory through the common ToolHub boundary."""
@@ -97,6 +105,7 @@ class Brain:
             metadata=metadata,
             enqueue_replication=True,
         )
+        self.cache.clear()
         return {
             "id": str(message.id),
             "stored": True,
@@ -117,7 +126,11 @@ class Brain:
         if not prompt:
             raise ValueError("Prompt cannot be empty")
         history = await self.state.conversation_context(conversation_id, limit=12)
-        memory_hits = await self.state.search_memory(user_id, prompt, limit=12)
+        cache_key = f"memory:{user_id}:{prompt.lower()[:512]}"
+        memory_hits = self.cache.get(cache_key)
+        if memory_hits is None:
+            memory_hits = await self.state.search_memory(user_id, prompt, limit=12)
+            self.cache.set(cache_key, memory_hits, ttl_seconds=2.0)
         ranked_memory = MemoryEngine.select(memory_hits, prompt, limit=12)
         if ranked_memory:
             memory_hits = [hit.entry for hit in ranked_memory]
@@ -206,7 +219,14 @@ class Brain:
             "in that evidence and cite sources inline as [1], [2], [3] using the numbered Web source entries."
         )
         if context:
-            system_content += "\n\nContext:\n" + "\n".join(context[-12:])
+            minimized = self.privacy_policy.minimize({
+                "message": prompt,
+                "relevant_memory": [entry.summary[:240] for entry in memory_hits[:8]],
+                "research": sources,
+            })
+            safe_context = redact_secrets("\n".join(context[-12:]))
+            system_content += "\n\nContext:\n" + safe_context
+            system_content += "\n\nPrivacy scope: " + ", ".join(sorted(minimized.keys()))
         messages: list[dict[str, str]] = [{"role": "system", "content": system_content}]
         messages.extend(history[-10:])
         messages.append({"role": "user", "content": prompt})
@@ -253,15 +273,21 @@ class Brain:
                     "model_selection_intent": selection.intent,
                     "model_selection_provider": None,
                     "model_selection_reason": selection.reason,
+                    "request_cycle": list(self.request_cycle.steps),
+                    "verification_required": self.verification_policy.requires_research(prompt),
+                    "knowledge_state": KnowledgeState.UNDETERMINED.value,
                 },
             )
 
         preferred_provider = selection.selected_provider
-        generation: GenerationResult = await self.models.complete(
-            messages,
-            budget,
-            preferred_provider=preferred_provider,
-        )
+        generation = (await self.execution_guard.run([
+            lambda: self.models.complete(
+                messages,
+                budget,
+                preferred_provider=preferred_provider,
+            )
+        ]))[0]
+        generation: GenerationResult
         return AgentResult(
             response=generation.text,
             trace=[AgentTrace(1, "generate", generation.meta.final_reason)],
@@ -279,6 +305,15 @@ class Brain:
                 "model_selection_intent": selection.intent,
                 "model_selection_provider": selection.selected_provider,
                 "model_selection_reason": selection.reason,
+                "request_cycle": list(self.request_cycle.steps),
+                "verification_required": self.verification_policy.requires_research(prompt),
+                "knowledge_state": (
+                    KnowledgeState.KNOW.value
+                    if self.verifier.verify_response(generation.text, sources).ok
+                    else KnowledgeState.CAN_RESEARCH.value
+                    if self.verification_policy.requires_research(prompt)
+                    else KnowledgeState.UNDETERMINED.value
+                ),
             },
         )
 
