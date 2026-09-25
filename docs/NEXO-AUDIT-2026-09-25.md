@@ -4,11 +4,11 @@
 ## Fuente de verdad
 - Repositorio: caggrometal-svg/C-33
 - Rama: main
-- SHA certificado de código: `9fda344d97483df065e8099e3bb8a1f494665ff4`
+- SHA certificado de código: `031aa50d422a0d098b53200f63f34fbf3720194b`
 - C-33 Certification: **PASS**
-- NEXO Progress Gate: **PASS**
-- Railway production deployment: `03ac0850-b29a-4d66-b32e-30d9e5e69468` — SUCCESS
-- Certificación C-33 run: `294`
+- NEXO Progress Gate: **PASS** (run 152)
+- Railway production deployment: `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3` — SUCCESS
+- Certificación C-33 run: `296`
 - El gate live observó 200 en health, ready, chat, Web/IA, AI readiness, memoria, SSE, status y diagnostics.
 
 ## Correcciones cerradas
@@ -69,7 +69,7 @@
 `VERDE*` significa cerrado en el alcance contractual/automatizado y compatible con la certificación actual; no significa que toda capacidad futura del mapa esté completada.
 
 ## Secciones 41-60
-✅ **VERDE contractual y automatizado.** La matriz explícita certifica las 20 secciones (41-60) en verde y el gate CI dedicado queda incluido en la certificación C-33 run 294. `src/nexo/phases_41_60.py` y `tests/test_phases_41_60.py` cubren Degraded Mode, Research Object, Long-Term Context, Controlled Autonomy, Permissions, Trust Architecture, NEXO Protocol, portability/decentralization path, local/remote cooperation, privacy, modes, matrix y Master Test Plan.
+✅ **VERDE contractual y automatizado.** La matriz explícita certifica las 20 secciones (41-60) en verde y el gate CI dedicado pasó en C-33 run 296. `src/nexo/phases_41_60.py` y `tests/test_phases_41_60.py` cubren Degraded Mode, Research Object, Long-Term Context, Controlled Autonomy, Permissions, Trust Architecture, NEXO Protocol, portability/decentralization path, local/remote cooperation, privacy, modes, matrix y Master Test Plan.
 
 El criterio de madurez 60 sigue siendo una aceptación futura: no debe confundirse con la existencia del contrato.
 
@@ -83,7 +83,7 @@ Estas secciones son reglas de gobierno, prioridad, aceptación y objetivo final.
 
 ## Extensión de cierre 61-100
 
-✅ **VERDE contractual y automatizado (40/40).** Las secciones 61-72 del mapa maestro y la extensión de ingeniería 73-100 están representadas y verificadas mediante `src/nexo/phases_61_100.py`, `tests/test_phases_61_100.py` y un gate CI específico.
+✅ **VERDE contractual y automatizado (40/40).** C-33 Certification #296 pasó todos los gates, incluido 61-100. Las secciones 61-72 del mapa maestro y la extensión de ingeniería 73-100 están representadas y verificadas mediante `src/nexo/phases_61_100.py`, `tests/test_phases_61_100.py` y un gate CI específico.
 
 El runtime distribuido pendiente (`peer_status=OFFLINE`, `replication_pending=393`) permanece 🔵 AZUL hasta disponer de peer operativo y evidencia de sincronización sin pérdida/duplicación.
 
