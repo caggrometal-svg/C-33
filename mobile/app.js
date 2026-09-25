@@ -1,5 +1,5 @@
 const C = window.C33_CONFIG || {};
-const DEFAULT_BACKEND_URLS = ["https://iac33-backup-production.up.railway.app"];
+const DEFAULT_BACKEND_URLS = [];
 const configuredBackendUrls = Array.isArray(C.BACKEND_URLS)
   ? C.BACKEND_URLS.map((url) => String(url || "").trim().replace(/\/$/, "")).filter(Boolean)
   : [];
