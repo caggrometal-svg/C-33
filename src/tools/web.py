@@ -202,6 +202,7 @@ class WebTool:
                 timeout=self.timeout,
                 follow_redirects=True,
                 headers=self._headers,
+                trust_env=False,
             ) as client:
                 response = await client.post(
                     "https://html.duckduckgo.com/html/",
@@ -238,6 +239,7 @@ class WebTool:
                 timeout=self.timeout,
                 follow_redirects=False,
                 headers=self._headers,
+                trust_env=False,
             ) as client:
                 async with client.stream("GET", current_url) as response:
                     if 300 <= response.status_code < 400:
