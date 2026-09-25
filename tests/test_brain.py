@@ -41,7 +41,7 @@ class Phase20ArchitectureTests(unittest.TestCase):
         response = LocalModel.complete("Hola", "timeout")
         self.assertIn("respaldo local", response)
         self.assertIn("timeout", response)
-        self.assertIn("no presentaré", response)
+        self.assertIn("no presentaré", response.lower())
 
     def test_verification_rejects_non_http_sources_and_bad_citations(self):
         from nexo.architecture import VerificationEngine
