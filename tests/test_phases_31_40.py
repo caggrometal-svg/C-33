@@ -108,7 +108,8 @@ class Phase31To40Tests(unittest.TestCase):
 
     def test_auto_mode_plan_contains_mode_specific_contract(self):
         research = AutoModeRouter.plan("investiga fuentes")
-        self.assertEqual(research["mode"], "RESEARCH")
+        self.assertEqual(research["mode"], "AUTO")
+        self.assertEqual(research["selected_mode"], "RESEARCH")
         self.assertEqual(len(research["plan"]), 8)
         action = AutoModeRouter.plan("ejecuta esta acción")
         self.assertTrue(action["authorization_required"])
