@@ -39,6 +39,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('return value.strip() if isinstance(value, str) else value', self.api)
         self.assertIn('message: str = Field(min_length=1, max_length=20_000)', self.api)
 
+    def test_rate_limiter_caps_bucket_count(self):
+        self.assertIn("if len(_rate_limit_buckets) > 4096:", self.api)
+        self.assertIn("oldest = sorted(", self.api)
+        self.assertIn("len(_rate_limit_buckets) - 4096", self.api)
+
     def test_global_http_responses_are_marked_no_store(self):
         self.assertIn('response.headers.setdefault("Cache-Control", "no-store")', self.api)
         self.assertIn('apply_security_headers(response)', self.api)

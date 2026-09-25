@@ -75,6 +75,13 @@ async def _enforce_rate_limit(request: Request, scope: str, limit: int) -> None:
             ]
             for bucket_key in stale[:1024]:
                 _rate_limit_buckets.pop(bucket_key, None)
+            if len(_rate_limit_buckets) > 4096:
+                oldest = sorted(
+                    _rate_limit_buckets.items(),
+                    key=lambda item: item[1][-1] if item[1] else 0,
+                )
+                for bucket_key, _ in oldest[: len(_rate_limit_buckets) - 4096]:
+                    _rate_limit_buckets.pop(bucket_key, None)
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
