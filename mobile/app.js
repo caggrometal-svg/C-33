@@ -96,6 +96,9 @@ const voiceTone = document.getElementById("voice-tone");
 const colorVariety = document.getElementById("color-variety");
 const fontSize = document.getElementById("font-size");
 const personalityOptions = [...document.querySelectorAll("[data-personality]")];
+const exportDataButton = document.getElementById("export-data");
+const importDataButton = document.getElementById("import-data");
+const importFile = document.getElementById("import-file");
 
 function createId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
@@ -104,8 +107,11 @@ function createId() {
 
 const userId = localStorage.getItem(USER_ID_KEY) || createId();
 localStorage.setItem(USER_ID_KEY, userId);
-const conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
+let conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
 localStorage.setItem(CONVERSATION_KEY, conversationId);
+const DEVICE_ID_KEY = "C33_DEVICE_ID";
+const deviceId = localStorage.getItem(DEVICE_ID_KEY) || createId();
+localStorage.setItem(DEVICE_ID_KEY, deviceId);
 
 const SETTINGS_KEY = "C33_NEXO_SETTINGS";
 const defaultSettings = { voiceTone: "neutral", colorVariety: false, fontSize: "medium", personality: "aggressive" };
@@ -133,6 +139,84 @@ function setSettingsOpen(open) {
   settings?.setAttribute("aria-hidden", String(!open));
   (open ? settingsClose : settingsOpen)?.focus();
 }
+async function exportNexoData() {
+  const response = await requestWithFailover("/v1/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      conversation_id: conversationId,
+      identity_id: userId,
+      device_id: deviceId,
+      preferences: { ...nexoSettings },
+      configuration: {
+        backend_urls: [...BACKEND_URLS],
+        client_timeout_ms: CLIENT_TIMEOUT_MS,
+        app_config_version: CONFIG_VERSION,
+      },
+    }),
+  });
+  const bundle = response?.data?.bundle;
+  if (!bundle) throw new Error("export_bundle_missing");
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = "C33-NEXO-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(href);
+  addMessage("Exportación NEXO completada: " + Number(bundle.messages?.length || 0) + " mensajes.", "assistant");
+}
+
+async function importNexoData(file) {
+  if (!file) return;
+  const raw = await file.text();
+  let bundle;
+  try { bundle = JSON.parse(raw); }
+  catch { throw new Error("archivo_json_invalido"); }
+  const response = await requestWithFailover("/v1/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bundle }),
+  });
+  const data = response?.data;
+  if (!data || data.status !== "ok") throw new Error("import_failed");
+  if (bundle.user_id) {
+    localStorage.setItem(USER_ID_KEY, String(bundle.user_id));
+  }
+  const firstConversation = Array.isArray(bundle.messages)
+    ? bundle.messages.map((m) => String(m?.conversation_id || "")).find(Boolean)
+    : "";
+  if (firstConversation) {
+    conversationId = firstConversation;
+    localStorage.setItem(CONVERSATION_KEY, conversationId);
+  }
+  addMessage(
+    "Importación NEXO completada: " + Number(data.accepted || 0) + "/" + Number(data.received || 0) + " mensajes aceptados.",
+    "assistant",
+  );
+}
+
+exportDataButton?.addEventListener("click", async () => {
+  exportDataButton.disabled = true;
+  try { await exportNexoData(); }
+  catch (error) { addMessage("Exportación no disponible: " + normalizeError(error), "error"); }
+  finally { exportDataButton.disabled = false; }
+});
+
+importDataButton?.addEventListener("click", () => importFile?.click());
+importFile?.addEventListener("change", async () => {
+  const file = importFile.files?.[0];
+  importFile.value = "";
+  if (!file) return;
+  importDataButton.disabled = true;
+  try { await importNexoData(file); }
+  catch (error) { addMessage("Importación no disponible: " + normalizeError(error), "error"); }
+  finally { importDataButton.disabled = false; }
+});
+
 if (settings && settingsOpen && settingsClose) {
   settingsOpen.addEventListener("click", () => setSettingsOpen(true));
   settingsClose.addEventListener("click", () => setSettingsOpen(false));
