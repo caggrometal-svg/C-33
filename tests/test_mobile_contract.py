@@ -4,6 +4,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class MobileContractTests(unittest.TestCase):
+    def test_mobile_package_and_android_release_target_are_on_0_1_6(self):
+        package = (ROOT / "mobile" / "package.json").read_text(encoding="utf-8")
+        self.assertIn('"version": "0.1.6"', package)
+
     def test_single_runtime_config_is_railway_only_and_uses_22s(self):
         config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
         self.assertIn("iac33-backup-production.up.railway.app", config)
