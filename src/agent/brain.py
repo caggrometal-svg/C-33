@@ -10,6 +10,7 @@ from typing import Any
 from agent.nexo import NexoCore
 from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, VerificationEngine
 from nexo.sources import SourceLedger
+from nexo.tools_builtin import calculate, utc_time
 from nexo.memory_engine import MemoryEngine
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
@@ -40,8 +41,10 @@ class Brain:
         self.cascade = cascade
         self.nexo = NexoCore()
         self.tools = ToolHub()
-        self.tools.register("web_search", self.web.search)
-        self.tools.register("web_fetch", self.web.fetch)
+        self.tools.register("web_search", self.web.search, network=True, risk="medium")
+        self.tools.register("web_fetch", self.web.fetch, network=True, risk="medium")
+        self.tools.register("calculate", calculate)
+        self.tools.register("utc_time", utc_time)
         self.models = ModelHub(cascade)
         self.orchestrator = NexoOrchestrator()
         self.verifier = VerificationEngine()
