@@ -189,6 +189,9 @@ jobs:
               assert forbidden not in operational, "paid dependency remains: " + forbidden
           assert "kilo-auto/free" in operational
           assert "vireonix.ai" in operational
+          config_text = Path("src/config.py").read_text(encoding="utf-8")
+          assert "AI_ZERO_COST_MODE" in config_text
+          assert "paid_inference_keys_are_disabled_in_free_mode" in config_text
           print("NEXO SIX RUNTIME SURFACES GREEN")
           print("NEXO FREE-ONLY POLICY GREEN")
           PY
