@@ -499,19 +499,15 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo-m3-free","base_url":"https://api.kilo.ai/api/gateway","model":"legacy",'
-                '"failure_domain":"kilo.ai","timeout_ms":5500},'
-                '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
-                '"failure_domain":"animica.dev","timeout_ms":5750},'
-                '{"id":"blockrun-cohere","base_url":"https://paid-provider.invalid/v1","model":"legacy",'
-                '"failure_domain":"paid-provider.invalid","timeout_ms":4000}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":4500},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":4500}]'
             )
-            os.environ["AI_PROVIDER_ORDER"] = "blockrun-cohere,kilo,animica"
-            os.environ["AI_DISABLED_PROVIDERS"] = "blockrun-cohere"
+            os.environ["AI_PROVIDER_ORDER"] = "vireonix,kilo"
+            os.environ["AI_DISABLED_PROVIDERS"] = "kilo"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
             cascade = ProviderCascade.from_environment(FakeState())
-            self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "animica"])
-            self.assertEqual(cascade.providers[0].model, "kilo-auto/free")
+            self.assertEqual([p.provider_id for p in cascade.providers], ["vireonix"])
+            self.assertEqual(cascade.providers[0].model, "auto")
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -523,7 +519,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         previous = {key: os.environ.get(key) for key in ("AI_PROVIDERS_JSON", "AI_PROVIDER_ORDER", "REQUIRE_PROVIDER_REDUNDANCY")}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"paid","base_url":"https://blockrun.ai/api/v1","model":"nvidia/nemotron-3.5-lightning","failure_domain":"blockrun.ai","timeout_ms":4500}]'
+                '[{"id":"paid","base_url":"https://paid-provider.invalid/v1","model":"paid-model","failure_domain":"paid-provider.invalid","timeout_ms":4500}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "paid"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
