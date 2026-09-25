@@ -190,8 +190,11 @@ async def lifespan(_: FastAPI):
             max_size=8,
             command_timeout=5,
             timeout=5,
+            server_settings={
+                "search_path": f'"{config.database_schema}",public',
+            },
         )
-        state = PostgresState(db_pool)
+        state = PostgresState(db_pool, schema=config.database_schema)
         await state.initialize()
         cascade = ProviderCascade.from_environment(state)
         try:
