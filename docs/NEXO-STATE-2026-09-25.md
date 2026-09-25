@@ -19,6 +19,8 @@ C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memo
 
 Multidevice/descentralización runtime permanece **AZUL** hasta recuperar el peer: la certificación live observó `peer_status=OFFLINE` y `replication_pending=393`. Esto no invalida el cierre contractual 41-60; es capacidad externa posterior pendiente de recuperación.
 
+Extensión 61-100: **🟢 VERDE contractual/automatizada (40/40)**. El gate 61-100 valida cobertura completa y ausencia de estados RED; las capacidades externas aún no realizadas continúan AZULES.
+
 ## Siguiente etapa
 IA local real, export/import UX completo, acciones externas, portabilidad completa y descentralización completa son trabajo posterior. No bloquean el cierre actual de ETAPA 40.
 

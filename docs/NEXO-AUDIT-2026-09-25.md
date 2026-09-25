@@ -81,6 +81,12 @@ Estas secciones son reglas de gobierno, prioridad, aceptación y objetivo final.
 - Replicación multidevice: 🔵 AZUL. El live observado presenta `peer_status=OFFLINE` y `replication_pending=393`.
 - El cierre contractual 41-60 sigue 🟢 VERDE; la recuperación del peer y el vaciado seguro de pendientes corresponden al siguiente bloque distribuido.
 
+## Extensión de cierre 61-100
+
+✅ **VERDE contractual y automatizado (40/40).** Las secciones 61-72 del mapa maestro y la extensión de ingeniería 73-100 están representadas y verificadas mediante `src/nexo/phases_61_100.py`, `tests/test_phases_61_100.py` y un gate CI específico.
+
+El runtime distribuido pendiente (`peer_status=OFFLINE`, `replication_pending=393`) permanece 🔵 AZUL hasta disponer de peer operativo y evidencia de sincronización sin pérdida/duplicación.
+
 ## Siguiente bloque, no bloqueo
 - IA local real: integrar un proveedor local real y certificar funcionamiento offline.
 - Export/import de usuario: completar round-trip de extremo a extremo.
