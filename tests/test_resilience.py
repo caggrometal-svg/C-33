@@ -1,11 +1,12 @@
 import asyncio
 import os
 import unittest
+from unittest.mock import patch
 
 import httpx
 
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError, ProviderSpec
-from resilience.state import PostgresState
+from resilience.state import PostgresState, ReplicationMessage
 
 class FakeState:
     def __init__(self):
@@ -74,6 +75,54 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         source = __import__("inspect").getsource(PostgresState.import_replication_batch)
         self.assertIn('if role not in {"user", "assistant", "system"}:', source)
         self.assertIn("continue", source)
+
+    async def test_replication_roundtrip_accepts_exact_receipt(self):
+        class FakeReplicationState(PostgresState):
+            def __init__(self):
+                super().__init__(None)
+                self.marked = []
+            async def pending_replication(self, limit=20):
+                return [ReplicationMessage(
+                    "11111111-1111-1111-1111-111111111111",
+                    "22222222-2222-2222-2222-222222222222",
+                    "user-1",
+                    1,
+                    "user",
+                    "C33_REPLICATION_OK",
+                    {},
+                    "req-1",
+                    "2026-09-25T00:00:00Z",
+                )]
+            async def mark_replication_result(self, message_id, *, ok, error=""):
+                self.marked.append((message_id, ok, error))
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs):
+                pass
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+            async def post(self, url, *, content, headers):
+                import hashlib, json
+                body = json.loads(content.decode("utf-8"))
+                ids = [item["id"] for item in body["messages"]]
+                return httpx.Response(
+                    200,
+                    json={
+                        "accepted": len(ids),
+                        "received": len(ids),
+                        "accepted_ids": ids,
+                        "receipt_sha256": hashlib.sha256(content).hexdigest(),
+                    },
+                    request=httpx.Request("POST", url),
+                )
+
+        state = FakeReplicationState()
+        with patch("resilience.state.httpx.AsyncClient", FakeAsyncClient):
+            result = await state.replicate_batch("https://peer.example", "secret", limit=20, timeout_ms=900)
+        self.assertEqual(result, (1, 0))
+        self.assertEqual(state.marked, [("11111111-1111-1111-1111-111111111111", True, "")])
 
     async def test_replication_sender_requires_exact_peer_receipt(self):
         source = __import__("inspect").getsource(PostgresState.replicate_batch)
