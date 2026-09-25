@@ -145,8 +145,10 @@ if (settings && settingsOpen && settingsClose) {
   applySettings();
 }
 
-function localFallbackMessage(message) {
-  return "NEXO está operando en respaldo local. La IA remota no está disponible. Consulta recibida: " + message.slice(0, 200);
+function localFallbackMessage(message, reason = "remote_unavailable") {
+  return "NEXO está operando en respaldo local. La IA remota no está disponible en este momento "
+    + "(" + reason + "). No presentaré este texto como una respuesta de IA remota. Consulta recibida: "
+    + message.slice(0, 200);
 }
 
 function addMessage(text, role) {
@@ -605,19 +607,37 @@ async function requestWithFailoverHttp(path, options = {}) {
         },
         remaining,
       );
+      recordDiagnostic("http-response", {
+        backend: index,
+        role: backendRole(index),
+        endpoint: path,
+        status: response.status,
+        ok: response.ok,
+        elapsed_ms: Math.round(performance.now() - started),
+        content_type: response.headers.get("content-type") || "",
+      });
       let data = null;
       try { data = await response.json(); } catch { data = null; }
       if (!response.ok) {
         const reason = data?.detail?.reason || data?.detail || "HTTP " + response.status;
-        failures.push(backendRole(index) + ": " + reason);
+        recordDiagnostic("http-error", {
+          backend: index,
+          role: backendRole(index),
+          endpoint: path,
+          status: response.status,
+          reason: String(reason),
+          body: truncateDiagnostic(JSON.stringify(data || {})),
+        });
+        failures.push(backendRole(index) + ": HTTP " + response.status + " " + String(reason));
         recordBackendFailure(index, String(reason));
-        if ([400, 401, 403].includes(response.status)) throw new Error(String(reason));
+        if ([400, 401, 403].includes(response.status)) throw new Error("HTTP " + response.status + " " + String(reason));
         continue;
       }
       if (data?._meta?.used_local_fallback) {
-        failures.push(backendRole(index) + ": " + (data._meta.final_reason || "remote_generation_failed"));
         lastMeta = data._meta;
-        continue;
+        lastMeta.client_fallback_transport = "http";
+        transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
+        return { response, data };
       }
       recordBackendSuccess(index);
       lastMeta = data?._meta || null;
@@ -695,24 +715,52 @@ form.addEventListener("submit", async (event) => {
         const data = httpResult?.data;
         if (data?.synthesis) {
           addMessage(data.synthesis, "assistant");
-          transition("AI_READY", "NEXO · IA lista · recuperación HTTP");
+          const usedLocalFallback = Boolean(data?._meta?.used_local_fallback);
+          transition(
+            usedLocalFallback ? "DEGRADED" : "AI_READY",
+            usedLocalFallback
+              ? "NEXO · respaldo local · recuperación HTTP"
+              : "NEXO · IA lista · recuperación HTTP",
+          );
           recordDiagnostic("stream-http-recovery", {
             request_id: requestId,
             provider: data?._meta?.provider_used || "",
             status: httpResult?.response?.status ?? null,
+            used_local_fallback: usedLocalFallback,
           });
         } else {
           throw new Error("http_recovery_empty_response");
         }
       } catch (recoveryError) {
+        const recoveryReason = normalizeError(recoveryError);
         recordDiagnostic("stream-http-recovery-failed", {
           request_id: requestId,
-          reason: normalizeError(recoveryError),
+          reason: recoveryReason,
           error_name: recoveryError?.name || "",
           error_message: recoveryError?.message || "",
         });
-        addMessage("NEXO no pudo conectarse a la IA remota. Diagnóstico: " + (error.message || "REMOTE_EXHAUSTED") + " | recuperación HTTP: " + (recoveryError.message || "failed"), "error");
-        transition("OFFLINE", "NEXO · IA remota no disponible");
+        const localReason = [error.message || "REMOTE_EXHAUSTED", recoveryReason]
+          .filter(Boolean)
+          .join(" | ");
+        const fallbackText = localFallbackMessage(message, localReason);
+        addMessage(fallbackText, "assistant");
+        lastMeta = {
+          ...(lastMeta || {}),
+          provider_used: "local",
+          model: "client-deterministic-fallback",
+          failover_triggered: true,
+          final_reason: "remote_exhausted",
+          system_status: "DEGRADED",
+          used_local_fallback: true,
+          request_id: requestId,
+        };
+        recordDiagnostic("client-local-fallback", {
+          request_id: requestId,
+          reason: localReason,
+          remote_error: error.message || "REMOTE_EXHAUSTED",
+          recovery_error: recoveryReason,
+        });
+        transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
       }
     } else {
       addMessage(error.message || "Error de conexión.", "error");
