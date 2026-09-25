@@ -329,6 +329,7 @@ jobs:
           migrated_messages = []
           for message in bundle.get("messages", []):
               copy = dict(message)
+              copy["id"] = str(uuid.uuid4())
               copy["user_id"] = imported_user
               copy["conversation_id"] = imported_conversation
               migrated_messages.append(copy)
