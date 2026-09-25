@@ -51,7 +51,7 @@ class MobileContractTests(unittest.TestCase):
 
     def test_mobile_circuit_state_uses_v4_storage_key(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('const CIRCUIT_KEY = "C33_CIRCUIT_V4"', app)
+        self.assertIn('const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V4"', app)
 
     def test_frontend_has_single_connection_probe_at_a_time(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
