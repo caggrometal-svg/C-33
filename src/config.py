@@ -94,8 +94,9 @@ def _required_secret_keys() -> tuple[str, ...]:
         parsed = None
     values = [str(item).strip() for item in parsed] if isinstance(parsed, list) else [x.strip() for x in raw.split(",")]
     values = [x for x in values if x]
-    if not values or any(len(x) < 16 for x in values):
-        raise ConfigurationError("SECRET_KEYS must contain keys with at least 16 characters")
+    minimum_length = 32 if os.getenv("APP_ENV", "production").strip().lower() == "production" else 16
+    if not values or any(len(x) < minimum_length for x in values):
+        raise ConfigurationError(f"SECRET_KEYS must contain keys with at least {minimum_length} characters")
     return tuple(dict.fromkeys(values))
 
 def _positive_int(name: str, default: int, minimum: int) -> int:
@@ -148,8 +149,11 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         required_in_production=False,
     )
     local_fallback_default = environment != "production"
-    if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
-        raise ConfigurationError("MODEL_BASE_URL must point to an approved zero-cost provider")
+    parsed_model_url = urlparse(model_base_url)
+    if model_base_url and (parsed_model_url.scheme != "https" or parsed_model_url.hostname not in {"vireonix.ai", "api.kilo.ai"}):
+        raise ConfigurationError("MODEL_BASE_URL must point to an approved HTTPS zero-cost provider")
+    if role not in {"primary", "backup"}:
+        raise ConfigurationError("C33_ROLE must be primary or backup")
     return InfrastructureConfig(
         port=_required_port(),
         database_url=_optional_database_url(),
