@@ -330,7 +330,18 @@ async def health() -> dict[str, Any]:
 @app.get("/ready", response_model=ReadyResponse)
 async def ready() -> ReadyResponse:
     """Infrastructure readiness: local process + durable PostgreSQL + redundancy configuration."""
-    if state is None or cascade is None or not await _database_ping():
+    db_ok = await _database_ping()
+    pending = await state.replication_pending_count() if state else -1
+    integrity = await state.replication_integrity() if state else {}
+    peer = await _peer_probe()
+    logger.info(
+        "[NEXO_REPLICATION_STATUS] pending=%s total=%s unique=%s peer=%s",
+        pending,
+        integrity.get("total_messages", -1),
+        integrity.get("unique_message_ids", -1),
+        peer,
+    )
+    if state is None or cascade is None or not db_ok:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"database_unavailable"})
     if config.environment == "production" and config.peer_url and not config.peer_replication_secret:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"peer_replication_secret_missing"})
