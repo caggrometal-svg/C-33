@@ -97,6 +97,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('messageNode.appendChild(sourceBox)', app)
         self.assertNotIn("sourceBox.innerHTML", app)
 
+    def test_local_fallback_is_explicitly_marked_degraded(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('provider_used: "local"', app)
+        self.assertIn('model: "client-deterministic-fallback"', app)
+        self.assertIn('used_local_fallback: true', app)
+        self.assertIn('transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible")', app)
+
     def test_stream_does_not_fail_over_after_partial_tokens(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn('if (receivedToken) {', app)
