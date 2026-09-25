@@ -19,6 +19,26 @@ class MemoryEngineTests(unittest.TestCase):
         self.assertEqual(hits[0].match, "token_match")
         self.assertGreater(hits[0].score, 0)
 
+    def test_equal_relevance_prefers_newer_memory(self):
+        from nexo.memory_engine import MemoryEngine
+
+        class Entry:
+            def __init__(self, created_at, summary):
+                self.created_at = created_at
+                self.user_text = summary
+                self.assistant_text = ""
+                self.summary = summary
+                self.debate_topic = ""
+                self.user_position = ""
+                self.tags = []
+                self.central_arguments = []
+
+        older = Entry("2026-09-25T06:00:00+00:00", "backend conexión")
+        newer = Entry("2026-09-25T06:30:00+00:00", "backend conexión")
+        hits = MemoryEngine.select([older, newer], "conexion backend", limit=2)
+        self.assertEqual(hits[0].entry, newer)
+        self.assertEqual(hits[1].entry, older)
+
 
 class PortableBundleTests(unittest.TestCase):
     def test_bundle_round_trip_shape(self):
