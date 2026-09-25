@@ -35,6 +35,11 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('client-deterministic-fallback', app)
         self.assertIn('used_local_fallback', app)
 
+    def test_frontend_backend_requests_disable_http_cache(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertGreaterEqual(app.count('cache: "no-store"'), 2)
+        self.assertIn('"Cache-Control": "no-cache"', app)
+
     def test_frontend_uses_single_public_runtime_config(self):
         self.assertTrue((ROOT / "mobile" / "public" / "config.js").exists())
         self.assertFalse((ROOT / "mobile" / "config.js").exists())
