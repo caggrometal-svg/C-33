@@ -2,11 +2,11 @@
 
 Fuente de verdad: rama `main`.
 
-SHA certificado de código: `55a2d62213a37563398d65d9585329eff87c11d2`.
+SHA certificado de código: `9fda344d97483df065e8099e3bb8a1f494665ff4`.
 
-C-33 Certification run 292: **PASS**.
-NEXO Progress Gate run 146: **PASS**.
-Railway production deployment `f86bc410-25f2-44f9-a349-84f56b2265f9`: **SUCCESS**.
+C-33 Certification run 294: **PASS**.
+NEXO Progress Gate run 149: **PASS**.
+Railway production deployment `03ac0850-b29a-4d66-b32e-30d9e5e69468`: **SUCCESS**.
 
 ## Evidencia live
 El gate certificó 200 en:
@@ -16,6 +16,8 @@ El último problema de provider quedó resuelto cambiando la topología a Kilo A
 
 ## Estado de trabajo
 C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memoria base, Model Hub, Tool Hub, Orchestrator, contratos 23-40 y cierre contractual 41-60: **VERDE en el alcance certificado actual**.
+
+Multidevice/descentralización runtime permanece **AZUL** hasta recuperar el peer: la certificación live observó `peer_status=OFFLINE` y `replication_pending=393`. Esto no invalida el cierre contractual 41-60; es capacidad externa posterior pendiente de recuperación.
 
 ## Siguiente etapa
 IA local real, export/import UX completo, acciones externas, portabilidad completa y descentralización completa son trabajo posterior. No bloquean el cierre actual de ETAPA 40.
