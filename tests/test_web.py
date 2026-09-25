@@ -46,6 +46,17 @@ class BoundedWebToolTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "embedded credentials"):
             await WebTool._validate_public_url("https://user:pass@example.com/")
 
+    async def test_fetch_rejects_excessive_redirect_chain(self):
+        async def redirect(request):
+            return httpx.Response(
+                302,
+                headers={"location": str(request.url)},
+                request=request,
+            )
+
+        with self.assertRaisesRegex(RuntimeError, "too_many_redirects"):
+            await self._run_with_transport(redirect, "https://example.com/loop")
+
     async def test_fetch_rejects_declared_oversized_response_before_reading(self):
         from tools.web import WebTool
 
