@@ -462,6 +462,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         raise HTTPException(status_code=generation_failure.http_status, detail={"reason":generation_failure.reason,"attempts":generation_failure.attempts})
 
     assert result is not None
+    verification = b.verifier.verify_response(result.response, result.sources)
     global remote_ai_ready
     remote_ai_ready = (
         time.monotonic() + 15.0,
@@ -485,6 +486,8 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         "peer_status":await _peer_probe(),
         "provider_attempts":int(result.model_meta.get("attempts",1)),
         "used_local_fallback":False,
+        "verification_ok":verification.ok,
+        "verification_warnings":list(verification.warnings),
     }
     sync = await _commit_turn(st, effective_payload, result.response, {**meta,"remaining_ms":budget.remaining_ms})
     meta["memory_sync"] = sync
@@ -604,7 +607,8 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 yield "event: token\n"
                 yield "data: " + json.dumps({"text":piece}, ensure_ascii=False) + "\n\n"
             final = "".join(pieces).strip()
-            logger.info("[NEXO_DEBUG_STREAM] provider_stream_complete request_id=%s chars=%s provider=%s failover=%s remaining_ms=%s", request_id, len(final), stream_meta.provider_used if stream_meta else "unknown", stream_meta.failover_triggered if stream_meta else None, budget.remaining_ms)
+            verification = b.verifier.verify_response(final, sources)
+            logger.info("[NEXO_DEBUG_STREAM] provider_stream_complete request_id=%s chars=%s provider=%s failover=%s verification_ok=%s remaining_ms=%s", request_id, len(final), stream_meta.provider_used if stream_meta else "unknown", stream_meta.failover_triggered if stream_meta else None, verification.ok, budget.remaining_ms)
             if not final or stream_meta is None:
                 raise GenerationFailure("empty_stream", http_status=502, attempts=[])
             global remote_ai_ready
@@ -634,6 +638,8 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 "provider_attempts":stream_meta.attempts,
                 "used_local_fallback":False,
                 "web_searches":sources,
+                "verification_ok":verification.ok,
+                "verification_warnings":list(verification.warnings),
             }
             await st.append_message(
                 conversation_id=payload.conversation_id,
