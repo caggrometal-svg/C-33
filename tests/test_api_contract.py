@@ -32,6 +32,12 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('evidence_grade: str | None = None', self.api)
         self.assertIn('web_sources_details: list[dict[str, Any]]', self.api)
 
+
+    def test_capabilities_endpoint_is_safe_metadata(self):
+        self.assertIn('@app.get("/v1/capabilities")', self.api)
+        self.assertIn('safe capability metadata', self.api)
+        self.assertNotIn('CONTROL_TOKEN', self.api.split('@app.get("/v1/capabilities")', 1)[1].split('@app.get("/v1/metrics")', 1)[0])
+
     def test_http_and_stream_transport_errors_use_nested_context(self):
         self.assertGreaterEqual(self.providers.count("cause = exc.__cause__"), 2)
         self.assertGreaterEqual(self.providers.count("temporary failure in name resolution"), 2)
