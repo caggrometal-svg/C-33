@@ -66,6 +66,13 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Number(C.CLIENT_TIMEOUT_MS || 22000)", app)
         self.assertNotIn("Number(C.CLIENT_TIMEOUT_MS || 28000)", app)
 
+    def test_mobile_diagnostics_are_bounded_and_truncated(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("const MAX_DIAGNOSTICS = 40;", app)
+        self.assertIn('.slice(0, MAX_DIAGNOSTICS)', app)
+        self.assertIn('function truncateDiagnostic(value, max = 4000)', app)
+        self.assertIn('"…[truncated]"', app)
+
     def test_mobile_circuit_state_uses_v4_storage_key(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
         self.assertIn('const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V4"', app)
