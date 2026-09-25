@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -173,13 +174,13 @@ class ClientDisconnected(RuntimeError):
     pass
 
 def _deployment_sha() -> str:
-    return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT_SHA") or "unknown"
+    return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or "unknown"
 
 def _backend_url() -> str:
     configured = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
     if configured:
         return configured
-    return "https://c33-backend.onrender.com" if config.role == "secondary" else "https://iac33-backup-production.up.railway.app"
+    return ""
 
 def _require_runtime() -> tuple[PostgresState, Brain, ProviderCascade]:
     if state is None or brain is None or cascade is None:
@@ -425,7 +426,7 @@ async def export_user_data(payload: ExportRequest, request: Request) -> dict[str
             "content": str(row["content"]),
             "metadata": st._metadata_dict(row["metadata"]),
             "request_id": row["request_id"],
-            "created_at": row["created_at"].astimezone().isoformat(),
+            "created_at": row["created_at"].astimezone(timezone.utc).isoformat(),
         }
         for row in rows
     ]
