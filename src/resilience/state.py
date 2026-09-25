@@ -111,6 +111,7 @@ class PostgresState:
     async def initialize(self) -> None:
         async with self.pool.acquire() as conn:
             await conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{self.schema}"')
+            await conn.execute(f'SET search_path TO "{self.schema}", public')
             await conn.execute(SCHEMA)
 
     async def database_ping(self) -> bool:
