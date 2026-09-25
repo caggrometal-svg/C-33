@@ -484,7 +484,7 @@ class PostgresState:
             ok_count += 1
         return ok_count, fail_count
 
-    async def import_replication_batch(self, messages: list[dict[str, Any]]) -> int:
+    async def import_replication_batch(self, messages: list[dict[str, Any]], *, enqueue_replication: bool = False) -> int:
         """Import replicated messages idempotently and reject conflicting state."""
         accepted = 0
         async with self.pool.acquire() as conn:
@@ -552,6 +552,12 @@ class PostgresState:
                             mid, conversation_id, user_id, seq, role, content,
                             json.dumps(metadata, ensure_ascii=False), request_id, item.get("created_at"),
                         )
+                        if enqueue_replication:
+                            await conn.execute(
+                                "INSERT INTO c33_replication_outbox(message_id) VALUES($1) "
+                                "ON CONFLICT(message_id) DO NOTHING",
+                                mid,
+                            )
                         await conn.execute(
                             "INSERT INTO c33_conversation_heads(conversation_id,next_seq) VALUES($1,$2) "
                             "ON CONFLICT(conversation_id) DO UPDATE SET next_seq=GREATEST(c33_conversation_heads.next_seq,EXCLUDED.next_seq)",

@@ -742,3 +742,5 @@ textarea:focus-visible { outline: 0; }
     opacity: 0.62;
   }
 }
+
+.data-actions{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}.action-button{cursor:pointer;min-width:5.5rem;padding:.55rem .8rem}.action-button:disabled{opacity:.55;cursor:wait}

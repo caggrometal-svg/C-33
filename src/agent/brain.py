@@ -14,6 +14,7 @@ from nexo.tools_builtin import calculate, utc_time
 from nexo.memory_engine import MemoryEngine
 from nexo.phases_23_30 import BoundedOrchestrator, KnowledgeState, PrivacyPolicy, RequestCycle, TTLCache, VerificationPolicy, redact_secrets
 from nexo.phases_31_40 import AutoModeRouter, NexoMode, PrivacyByDefaultPolicy
+from nexo.local_llm import LocalLLMClient, LocalLLMUnavailable
 from nexo.phases_41_60 import ControlledAutonomyPolicy, DegradedModePolicy, MasterTestPlan, NexoModeMatrix
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
@@ -66,6 +67,7 @@ class Brain:
         self.autonomy_policy = ControlledAutonomyPolicy()
         self.mode_matrix = NexoModeMatrix()
         self.cache = TTLCache()
+        self.local_llm = LocalLLMClient()
 
     async def _tool_memory_search(self, query: str, user_id: str = "anonymous", limit: int = 8) -> list[dict[str, Any]]:
         """Expose durable memory through the common ToolHub boundary."""
@@ -276,46 +278,87 @@ class Brain:
         autonomy_contract = self.autonomy_policy.plan(("memory_search", "web_search", "web_fetch", "generate"), authorized=False, max_steps=8)
         master_test_contract = MasterTestPlan.validate()
         if selection.local_required and selection.selected_provider is None:
-            response = LocalModel.complete(prompt, selection.reason)
-            return AgentResult(
-                response=response,
-                trace=[AgentTrace(1, "local", selection.reason)],
-                sources=sources,
-                source_records=source_records,
-                memory_hits=memory_hits,
-                model_meta={
-                    "provider_used": "local",
-                    "model": LocalModel.model_id,
-                    "failover_triggered": True,
-                    "attempts": 0,
-                    "latency_ms": 0,
-                    "final_reason": selection.reason,
-                    "system_status": "DEGRADED",
-                    "model_selection_intent": selection.intent,
-                    "model_selection_provider": None,
-                    "model_selection_reason": selection.reason,
-                    "request_cycle": list(self.request_cycle.steps),
-                    "verification_required": self.verification_policy.requires_research(prompt),
-                    "knowledge_state": KnowledgeState.UNDETERMINED.value,
-                    "degraded_mode": self.degraded_policy.decide(provider_available=False, local_available=True).mode.value,
-                    "mode_matrix": {
-                        "internet": mode_entry.internet,
-                        "memory": mode_entry.memory,
-                        "tools": mode_entry.tools,
-                        "chat_optional": mode_entry.chat_optional,
+            try:
+                response, local_meta = await self.local_llm.complete(messages)
+                return AgentResult(
+                    response=response,
+                    trace=[AgentTrace(1, "local_llm", "real_local_runtime")],
+                    sources=sources,
+                    source_records=source_records,
+                    memory_hits=memory_hits,
+                    model_meta={
+                        **local_meta,
+                        "failover_triggered": False,
+                        "attempts": 1,
+                        "final_reason": "local_llm_success",
+                        "model_selection_intent": selection.intent,
+                        "model_selection_provider": "local",
+                        "model_selection_reason": selection.reason,
+                        "request_cycle": list(self.request_cycle.steps),
+                        "verification_required": False,
+                        "knowledge_state": KnowledgeState.UNDETERMINED.value,
+                        "degraded_mode": self.degraded_policy.decide(provider_available=False, local_available=True).mode.value,
+                        "mode_matrix": {
+                            "internet": mode_entry.internet,
+                            "memory": mode_entry.memory,
+                            "tools": mode_entry.tools,
+                            "chat_optional": mode_entry.chat_optional,
+                        },
+                        "autonomy_contract": {
+                            "max_steps": autonomy_contract.max_steps,
+                            "approval_required": autonomy_contract.approval_required,
+                            "operations": autonomy_contract.operations,
+                        },
+                        "master_test_contract": master_test_contract,
+                        "mode": mode_plan["mode"],
+                        "selected_mode": mode_plan["selected_mode"],
+                        "mode_reason": mode_plan["reason"],
+                        "mode_contract": mode_plan,
+                        "used_local_fallback": False,
                     },
-                    "autonomy_contract": {
-                        "max_steps": autonomy_contract.max_steps,
-                        "approval_required": autonomy_contract.approval_required,
-                        "operations": autonomy_contract.operations,
+                )
+            except LocalLLMUnavailable as exc:
+                response = LocalModel.complete(prompt, str(exc))
+                return AgentResult(
+                    response=response,
+                    trace=[AgentTrace(1, "local_fallback", str(exc))],
+                    sources=sources,
+                    source_records=source_records,
+                    memory_hits=memory_hits,
+                    model_meta={
+                        "provider_used": "local",
+                        "model": LocalModel.model_id,
+                        "failover_triggered": True,
+                        "attempts": 0,
+                        "latency_ms": 0,
+                        "final_reason": str(exc),
+                        "system_status": "DEGRADED",
+                        "model_selection_intent": selection.intent,
+                        "model_selection_provider": None,
+                        "model_selection_reason": selection.reason,
+                        "request_cycle": list(self.request_cycle.steps),
+                        "verification_required": False,
+                        "knowledge_state": KnowledgeState.UNDETERMINED.value,
+                        "degraded_mode": self.degraded_policy.decide(provider_available=False, local_available=False).mode.value,
+                        "mode_matrix": {
+                            "internet": mode_entry.internet,
+                            "memory": mode_entry.memory,
+                            "tools": mode_entry.tools,
+                            "chat_optional": mode_entry.chat_optional,
+                        },
+                        "autonomy_contract": {
+                            "max_steps": autonomy_contract.max_steps,
+                            "approval_required": autonomy_contract.approval_required,
+                            "operations": autonomy_contract.operations,
+                        },
+                        "master_test_contract": master_test_contract,
+                        "mode": mode_plan["mode"],
+                        "selected_mode": mode_plan["selected_mode"],
+                        "mode_reason": mode_plan["reason"],
+                        "mode_contract": mode_plan,
+                        "used_local_fallback": True,
                     },
-                    "master_test_contract": master_test_contract,
-                    "mode": mode_plan["mode"],
-                    "selected_mode": mode_plan["selected_mode"],
-                    "mode_reason": mode_plan["reason"],
-                    "mode_contract": mode_plan,
-                },
-            )
+                )
 
         preferred_provider = selection.selected_provider
         generation = (await self.execution_guard.run([

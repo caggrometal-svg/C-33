@@ -157,6 +157,33 @@ jobs:
           PY
 
 
+  six_runtime_surfaces:
+    name: NEXO six capability runtime surfaces
+    needs: [backend, mobile]
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - name: Verify local LLM and action execution boundaries
+        run: |
+          python -m unittest tests.test_local_llm tests.test_actions tests.test_six_capabilities -v
+          python - <<'PY'
+          from pathlib import Path
+          api = Path("src/api.py").read_text(encoding="utf-8")
+          mobile = Path("mobile/app.js").read_text(encoding="utf-8")
+          for endpoint in ("/v1/local-ai", "/v1/replication/status", "/v1/export", "/v1/import", "/v1/actions/execute"):
+              assert endpoint in api, endpoint
+          for marker in ("exportNexoData", "importNexoData", "/v1/export", "/v1/import"):
+              assert marker in mobile, marker
+          print("NEXO SIX RUNTIME SURFACES GREEN")
+          PY
+
   live:
     name: Railway live connectivity
     needs: [backend, mobile, android]
@@ -280,6 +307,71 @@ jobs:
               raise SystemExit(f"second remote chat failed: {second.status_code} {second.text}")
           second_data = second.json()
           second_meta = second_data.get("_meta", {})
+
+          export_request = {
+              "user_id": payload["user_id"],
+              "conversation_id": payload["conversation_id"],
+              "identity_id": payload["user_id"],
+              "device_id": "github-export-device",
+              "preferences": {"font_size": "medium", "voice_tone": "neutral"},
+              "configuration": {"backend_urls": [base]},
+          }
+          exported = httpx.post(base + "/v1/export", json=export_request, timeout=12)
+          if exported.status_code != 200:
+              raise SystemExit(f"export failed: {exported.status_code} {exported.text}")
+          export_data = exported.json()
+          bundle = export_data.get("bundle", {})
+          if not bundle.get("sha256") or bundle.get("user_id") != payload["user_id"]:
+              raise SystemExit(f"invalid export bundle: {json.dumps(export_data)}")
+
+          imported_user = "github-import-" + uuid.uuid4().hex[:12]
+          imported_conversation = "import-" + uuid.uuid4().hex
+          migrated_messages = []
+          for message in bundle.get("messages", []):
+              copy = dict(message)
+              copy["user_id"] = imported_user
+              copy["conversation_id"] = imported_conversation
+              migrated_messages.append(copy)
+          migrated_bundle = dict(bundle)
+          migrated_bundle["user_id"] = imported_user
+          migrated_bundle["identity_id"] = imported_user
+          migrated_bundle["device_id"] = "github-import-device"
+          migrated_bundle["messages"] = migrated_messages
+          payload_for_digest = dict(migrated_bundle)
+          payload_for_digest.pop("sha256", None)
+          raw_digest = json.dumps(
+              payload_for_digest, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+          ).encode("utf-8")
+          import hashlib
+          migrated_bundle["sha256"] = hashlib.sha256(raw_digest).hexdigest()
+
+          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": False}, timeout=12)
+          if imported.status_code != 200:
+              raise SystemExit(f"import failed: {imported.status_code} {imported.text}")
+          import_data = imported.json()
+          if int(import_data.get("accepted", 0)) != len(migrated_messages):
+              raise SystemExit(f"import did not accept full bundle: {json.dumps(import_data)}")
+
+          local_ai = httpx.get(base + "/v1/local-ai", timeout=8)
+          if local_ai.status_code != 200:
+              raise SystemExit(f"local AI status surface failed: {local_ai.status_code} {local_ai.text}")
+          local_ai_data = local_ai.json()
+          if local_ai_data.get("status") != "ok" or local_ai_data.get("provider") != "local":
+              raise SystemExit(f"invalid local AI status surface: {json.dumps(local_ai_data)}")
+
+          action_gate = httpx.post(
+              base + "/v1/actions/execute",
+              json={
+                  "user_id": payload["user_id"],
+                  "action": "certification.denied",
+                  "url": "https://example.com",
+                  "authorized": False,
+              },
+              timeout=8,
+          )
+          if action_gate.status_code != 401:
+              raise SystemExit(f"action authorization gate failed: {action_gate.status_code} {action_gate.text}")
+
           if second_meta.get("used_local_fallback"):
               raise SystemExit("second remote chat unexpectedly used local fallback")
           if not str(second_data.get("synthesis", "")).strip():
@@ -368,7 +460,7 @@ jobs:
 
   final:
     name: C-33 final matrix gate
-    needs: [backend, mobile, android, live, codeql, closure, closure_61_100]
+    needs: [backend, mobile, android, live, codeql, closure, closure_61_100, six_runtime_surfaces]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -381,6 +473,7 @@ jobs:
           CODEQL_RESULT: ${{ needs.codeql.result }}
           CLOSURE_RESULT: ${{ needs.closure.result }}
           CLOSURE_61_100_RESULT: ${{ needs.closure_61_100.result }}
+          SIX_RUNTIME_RESULT: ${{ needs.six_runtime_surfaces.result }}
         run: |
           test "$BACKEND_RESULT" = success
           test "$MOBILE_RESULT" = success
@@ -389,6 +482,7 @@ jobs:
           test "$CODEQL_RESULT" = success
           test "$CLOSURE_RESULT" = success
           test "$CLOSURE_61_100_RESULT" = success
+          test "$SIX_RUNTIME_RESULT" = success
           echo "C-33 FINAL MATRIX GREEN"
           echo "NEXO 41-60 CLOSURE GREEN"
           echo "NEXO 61-100 CLOSURE GREEN"

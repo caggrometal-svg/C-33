@@ -84,6 +84,22 @@ class PortableBundleTests(unittest.TestCase):
         self.assertTrue(validate_bundle(bundle)[0])
 
 
+    def test_bundle_preserves_identity_preferences_and_configuration(self):
+        from nexo.portable import export_bundle, validate_bundle
+        bundle = export_bundle(
+            user_id="u1",
+            messages=[{"role": "user", "content": "hola"}],
+            memory=[],
+            preferences={"font_size": "large"},
+            configuration={"backend_urls": ["https://example.invalid"]},
+            identity_id="u1",
+            device_id="d1",
+        )
+        self.assertEqual(bundle["identity_id"], "u1")
+        self.assertEqual(bundle["device_id"], "d1")
+        self.assertEqual(bundle["preferences"]["font_size"], "large")
+        self.assertTrue(validate_bundle(bundle)[0])
+
     def test_checksum_detects_tampering(self):
         from nexo.portable import export_bundle, validate_bundle
         bundle = export_bundle(user_id='u1', messages=[], memory=[])
