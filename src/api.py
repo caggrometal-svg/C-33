@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ if _SRC_DIR not in __import__("sys").path:
     __import__("sys").path.insert(0, _SRC_DIR)
 
 from agent.brain import AgentResult, Brain
+from nexo.observability import RequestMetrics, normalize_request_id
 from config import InfrastructureConfig, load_infrastructure_config
 from resilience.providers import DeadlineBudget, GenerationFailure, ProviderCascade, ProviderConfigurationError
 from resilience.state import PostgresState
@@ -37,6 +39,7 @@ cascade: ProviderCascade | None = None
 replication_task: asyncio.Task[None] | None = None
 remote_ai_ready: tuple[float, dict[str, Any]] | None = None
 logger = logging.getLogger("nexo.c33")
+metrics = RequestMetrics()
 READINESS_PROBE_TIMEOUT_SECONDS = 3.0
 
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
@@ -95,6 +98,8 @@ class ResponseMeta(BaseModel):
     provider_attempts: int
     used_local_fallback: bool = False
     web_searches: list[str] = Field(default_factory=list)
+    verification_ok: bool | None = None
+    verification_warnings: list[str] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     status: str
@@ -219,6 +224,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def observability_middleware(request: Request, call_next):
+    request_id = normalize_request_id(
+        request.headers.get("X-C33-Request-ID")
+        or request.headers.get("X-Request-ID")
+    )
+    request.state.request_id = request_id
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        metrics.record(
+            request.method,
+            request.url.path,
+            500,
+            int((time.monotonic() - started) * 1000),
+        )
+        raise
+    metrics.record(
+        request.method,
+        request.url.path,
+        response.status_code,
+        int((time.monotonic() - started) * 1000),
+    )
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Pure liveness: process is alive; no DB/AI check and no false readiness."""
@@ -246,6 +278,11 @@ async def ready() -> ReadyResponse:
 @app.get("/v1/time")
 async def api_time() -> dict[str, str]:
     return {"utc":"%.3f" % time.time(),"deployment_sha":_deployment_sha()}
+
+@app.get("/v1/metrics")
+async def api_metrics() -> dict[str, Any]:
+    """Aggregate observability only; never return user content."""
+    return {"status": "ok", "service": "C-33", "metrics": metrics.snapshot()}
 
 @app.get("/status")
 async def status() -> dict[str, Any]:
@@ -391,7 +428,7 @@ async def _commit_turn(st: PostgresState, payload: ChatRequest, synthesis: str, 
 
 async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     st, b, providers = _require_runtime()
-    request_id = payload.request_id.strip() or os.urandom(12).hex()
+    request_id = payload.request_id.strip() or getattr(request.state, "request_id", "") or uuid.uuid4().hex
     effective_payload = payload.model_copy(update={"request_id":request_id})
     existing = await st.existing_assistant_for_request(effective_payload.conversation_id, request_id)
     if existing:
