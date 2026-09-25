@@ -200,7 +200,7 @@ class ProviderCascade:
         order = (
             [x.strip() for x in raw_order.split(",") if x.strip()]
             if raw_order
-            else ["pollinations", "kilo", "vireonix"]
+            else ["vireonix", "kilo", "pollinations"]
         )
         if len(set(order)) != len(order):
             raise ProviderConfigurationError("provider_order_contains_duplicates")
