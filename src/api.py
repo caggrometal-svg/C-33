@@ -653,20 +653,27 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 }, ensure_ascii=False) + "\n\n"
                 return
             requested_local_fallback = request.headers.get("X-C33-Allow-Local-Fallback", "true").strip().lower() in {"1", "true", "yes", "on"}
-            allow_local_fallback = (
-                requested_local_fallback
-                and config.local_fallback_enabled
-                and config.environment != "production"
-            )
+            allow_local_fallback = requested_local_fallback and config.local_fallback_enabled
             if not allow_local_fallback:
-                if config.environment == "production" and requested_local_fallback:
+                if requested_local_fallback and not config.local_fallback_enabled:
                     logger.warning(
-                        "[NEXO_DEBUG_STREAM] local_fallback_blocked_in_production request_id=%s reason=%s",
+                        "[NEXO_DEBUG_STREAM] local_fallback_disabled request_id=%s environment=%s reason=%s",
                         request_id,
+                        config.environment,
                         exc.reason,
                     )
                 yield "event: error\n"
-                yield "data: " + json.dumps({"reason":exc.reason,"_meta":{"final_reason":exc.reason,"used_local_fallback":False}}, ensure_ascii=False) + "\n\n"
+                yield "data: " + json.dumps({
+                    "reason": exc.reason,
+                    "http_status": exc.http_status,
+                    "attempts": exc.attempts,
+                    "_meta": {
+                        "final_reason": exc.reason,
+                        "http_status": exc.http_status,
+                        "provider_attempts": len(exc.attempts),
+                        "used_local_fallback": False,
+                    },
+                }, ensure_ascii=False) + "\n\n"
                 return
             logger.warning("[NEXO_DEBUG_STREAM] fallback_activate request_id=%s reason=%s", request_id, exc.reason)
             fallback = b.local_fallback(payload.message, exc.reason)
