@@ -522,14 +522,16 @@ h1 { margin: 0; font-size: 1rem; letter-spacing: 0.18em; font-weight: 800; }
 .color-variety .brand-mark span:nth-child(3) { background: #ff4fd8; box-shadow: 0 0 10px rgba(255,79,216,0.78); }
 
 .composer {
-  position: absolute;
-  left: 0;
-  right: 0;
+  position: fixed;
+  left: 50%;
+  right: auto;
   bottom: 0;
+  width: min(900px, 100%);
   z-index: 5;
+  transform: translateX(-50%) translateZ(0);
   padding: 10px 12px max(12px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, rgba(2,4,3,0), rgba(2,4,3,0.78) 26%, rgba(2,4,3,0.98) 72%);
-  transform: translateZ(0);
+  transform: translateX(-50%) translateZ(0);
 }
 
 .composer-shell {
