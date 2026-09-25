@@ -39,6 +39,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('return value.strip() if isinstance(value, str) else value', self.api)
         self.assertIn('message: str = Field(min_length=1, max_length=20_000)', self.api)
 
+    def test_chat_response_meta_alias_remains_stable(self):
+        self.assertIn('meta: ResponseMeta = Field(alias="_meta")', self.api)
+        self.assertIn('model_config = {"populate_by_name": True}', self.api)
+        self.assertIn('web_searches: list[str]', self.api)
+
     def test_capabilities_endpoint_is_safe_metadata(self):
         self.assertIn('@app.get("/v1/capabilities")', self.api)
         self.assertIn('safe capability metadata', self.api)
