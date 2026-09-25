@@ -91,8 +91,28 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_timeout_is_capped_for_failover_budget(self):
         budget = DeadlineBudget(18000)
-        self.assertEqual(budget.provider_timeout_ms(9000), 5500)
+        self.assertEqual(budget.provider_timeout_ms(9000), 4500)
         self.assertLessEqual(budget.provider_timeout_ms(9000), budget.remaining_ms)
+
+    async def test_sequential_timeout_failover_reaches_third_provider(self):
+        state = FakeState()
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 9000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 9000),
+            ProviderSpec("c", "https://c.test/v1", "m-c", None, "c", 9000),
+        ]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a", "b", "c"],
+            transport=FaultTransport({"a.test": "timeout", "b.test": "timeout", "c.test": "ok"}),
+        )
+        result = await cascade.complete(
+            [{"role": "user", "content": "x"}],
+            DeadlineBudget(18000),
+        )
+        self.assertEqual(result.meta.provider_used, "c")
+        self.assertEqual([failure[0] for failure in state.failures[:2]], ["a", "b"])
 
     async def test_dns_failure_fails_over(self):
         state = FakeState()
