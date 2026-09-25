@@ -12,7 +12,8 @@ from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, V
 from nexo.sources import SourceLedger
 from nexo.tools_builtin import calculate, utc_time
 from nexo.memory_engine import MemoryEngine
-from nexo.phases_23_30 import BoundedOrchestrator, KnowledgeState, PrivacyPolicy, RequestCycle, TTLCache, VerificationPolicy, redact_secrets\nfrom nexo.phases_31_40 import AutoModeRouter, NexoMode, PrivacyByDefaultPolicy
+from nexo.phases_23_30 import BoundedOrchestrator, KnowledgeState, PrivacyPolicy, RequestCycle, TTLCache, VerificationPolicy, redact_secrets
+from nexo.phases_31_40 import AutoModeRouter, NexoMode, PrivacyByDefaultPolicy
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
