@@ -194,12 +194,14 @@ class WebTool:
                 follow_redirects=True,
                 headers=self._headers,
             ) as client:
-                response = await client.get(
+                response = await client.post(
                     "https://html.duckduckgo.com/html/",
-                    params={"q": query},
+                    data={"q": query},
                 )
                 response.raise_for_status()
                 results = self._parse_search_results(response.text)[: self.max_results]
+                if not results:
+                    raise RuntimeError("no_search_results_parsed")
         except Exception as exc:
             logger.warning(
                 "[NEXO_DEBUG_WEB] search_failed query_hash=%s error_class=%s latency_ms=%s",
