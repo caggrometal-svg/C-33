@@ -83,6 +83,11 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('if version != "1":', self.api)
         self.assertIn('unsupported_replication_version', self.api)
 
+    def test_ai_diagnostics_never_exposes_secret_environment_values(self):
+        diag = self.api.split('@app.get("/v1/ai/diagnostics")', 1)[1].split('@app.get("/v1/ai-ready")', 1)[0]
+        for secret_name in ("CONTROL_TOKEN", "DATABASE_URL", "PEER_REPLICATION_SECRET", "AUTHORIZATION"):
+            self.assertNotIn(secret_name, diag)
+
     def test_ai_ready_is_non_fallback_and_uncached(self):
         ready = self.api.split('@app.get("/v1/ai-ready")', 1)[1].split('async def _run_with_disconnect', 1)[0]
         self.assertIn('remote_ai_ready = None', ready)
