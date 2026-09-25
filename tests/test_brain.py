@@ -104,5 +104,47 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertTrue(plan.use_web)
 
 
+    def test_model_selection_policy_routes_by_capability(self):
+        from nexo.architecture import ModelHub
+
+        class Spec:
+            def __init__(self, provider_id, model, failure_domain, capabilities):
+                self.provider_id = provider_id
+                self.model = model
+                self.failure_domain = failure_domain
+                self.capabilities = capabilities
+
+        class FakeCascade:
+            configured_provider_ids = ["fast", "deep", "cheap"]
+            providers = [
+                Spec("fast", "m-fast", "fast.test", ("chat", "stream", "fast")),
+                Spec("deep", "m-deep", "deep.test", ("chat", "stream", "reasoning")),
+                Spec("cheap", "m-cheap", "cheap.test", ("chat", "stream", "economical")),
+            ]
+
+        hub = ModelHub(FakeCascade())
+        self.assertEqual(hub.select_for_task("hola").selected_provider, "fast")
+        self.assertEqual(hub.select_for_task("analiza y depura este error").selected_provider, "deep")
+        self.assertEqual(hub.select_for_task("haz un resumen").selected_provider, "cheap")
+
+    def test_model_selection_policy_never_fakes_local(self):
+        from nexo.architecture import ModelHub
+
+        class Spec:
+            provider_id = "remote"
+            model = "m-remote"
+            failure_domain = "remote.test"
+            capabilities = ("chat", "stream")
+
+        class FakeCascade:
+            configured_provider_ids = ["remote"]
+            providers = [Spec()]
+
+        decision = ModelHub(FakeCascade()).select_for_task("procesa esto en modo privado y local")
+        self.assertTrue(decision.local_required)
+        self.assertIsNone(decision.selected_provider)
+        self.assertEqual(decision.reason, "local_capability_unavailable")
+
+
 if __name__ == "__main__":
     unittest.main()
