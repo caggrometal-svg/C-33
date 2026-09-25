@@ -251,7 +251,7 @@ jobs:
           if diagnostics_data.get("provider_configuration_valid") is not True:
               raise SystemExit(f"provider configuration invalid: {json.dumps(diagnostics_data)}")
           if diagnostics_data.get("local_fallback_enabled") is not True:
-              raise SystemExit(f"local fallback must be disabled in production: {json.dumps(diagnostics_data)}")
+              raise SystemExit(f"local fallback must be enabled in production: {json.dumps(diagnostics_data)}")
           if len(set(diagnostics_data.get("provider_failure_domains", []))) < 2:
               raise SystemExit(f"provider failure domains not diverse: {json.dumps(diagnostics_data)}")
 
