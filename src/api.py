@@ -388,11 +388,15 @@ async def replication_status() -> dict[str, Any]:
     peer = await _peer_probe()
     pending = await st.replication_pending_count()
     integrity = await st.replication_integrity()
+    peer_host = None
+    if config.peer_url:
+        peer_host = (__import__("urllib.parse", fromlist=["urlparse"]).urlparse(config.peer_url).hostname or "").lower() or None
     return {
         "status": "ok",
         "deployment_sha": _deployment_sha(),
         "backend_role": config.role,
         "peer_url_configured": bool(config.peer_url),
+        "peer_host": peer_host,
         "peer_status": peer,
         "replication_pending": pending,
         **integrity,
