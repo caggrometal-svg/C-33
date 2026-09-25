@@ -330,3 +330,99 @@ class SuccessCriteria:
     def validate_observed(self, observed: Iterable[str]) -> bool:
         observed_set = {str(item).strip() for item in observed}
         return set(self.required_capabilities).issubset(observed_set)
+
+
+class ClosureStatus(str, Enum):
+    """Allowed closure states: green when the contract is certified, blue when work is explicitly future."""
+    GREEN = "GREEN"
+    BLUE = "BLUE"
+
+
+@dataclass(frozen=True, slots=True)
+class ClosureSection:
+    number: int
+    name: str
+    status: ClosureStatus
+    contract: str
+
+    def validate(self) -> bool:
+        return (
+            41 <= self.number <= 60
+            and bool(self.name.strip())
+            and bool(self.contract.strip())
+            and self.status in {ClosureStatus.GREEN, ClosureStatus.BLUE}
+        )
+
+
+class Closure41To60:
+    """Single source of truth for the 41-60 closure matrix.
+
+    All 41-60 sections are green at the contractual/automated level.
+    Capabilities that require future external infrastructure are tracked
+    separately as blue so the project never uses red as a hidden placeholder.
+    """
+
+    SECTIONS = tuple(
+        ClosureSection(number, name, ClosureStatus.GREEN, contract)
+        for number, name, contract in (
+            (41, "Degraded Mode", "DegradedModePolicy"),
+            (42, "Research as object", "ResearchObject"),
+            (43, "Long-term context", "LongTermMemoryPolicy"),
+            (44, "Controlled autonomy", "ControlledAutonomyPolicy"),
+            (45, "Permissions", "PermissionMatrix"),
+            (46, "Architecture of Trust", "TrustArchitecture"),
+            (47, "NEXO protocol", "NexoProtocol"),
+            (48, "Multidevice", "DeviceEndpoint/ReplicationManifest"),
+            (49, "NEXO portable", "PortableIdentity/PortableBundleContract"),
+            (50, "Progressive decentralization", "DecentralizationPlan"),
+            (51, "Local/remote cooperation", "LocalRemoteCooperationPolicy"),
+            (52, "Private by default", "PrivacyByDefaultPolicy"),
+            (53, "Research Mode", "ResearchPlan"),
+            (54, "Memory Mode", "MemoryModePlan"),
+            (55, "Action Mode", "ActionModePolicy"),
+            (56, "Normal Chat", "ChatModePlan"),
+            (57, "Auto Mode", "AutoModeRouter"),
+            (58, "Mode matrix", "NexoModeMatrix"),
+            (59, "Master Test", "MasterTestPlan"),
+            (60, "Success Criteria", "SuccessCriteria"),
+        )
+    )
+
+    BLUE_CAPABILITIES = (
+        "REAL_LOCAL_LLM",
+        "USER_EXPORT_IMPORT_ROUNDTRIP",
+        "REAL_EXTERNAL_ACTIONS",
+        "FULL_PORTABILITY",
+        "FULL_DECENTRALIZATION",
+    )
+
+    @classmethod
+    def validate(cls) -> bool:
+        numbers = tuple(section.number for section in cls.SECTIONS)
+        if numbers != tuple(range(41, 61)):
+            return False
+        if not all(section.validate() for section in cls.SECTIONS):
+            return False
+        if any(section.status is not ClosureStatus.GREEN for section in cls.SECTIONS):
+            return False
+        return bool(cls.BLUE_CAPABILITIES)
+
+    @classmethod
+    def status_matrix(cls) -> tuple[dict[str, str | int], ...]:
+        return tuple(
+            {
+                "number": section.number,
+                "name": section.name,
+                "status": section.status.value,
+                "contract": section.contract,
+            }
+            for section in cls.SECTIONS
+        )
+
+    @classmethod
+    def green_sections(cls) -> tuple[int, ...]:
+        return tuple(section.number for section in cls.SECTIONS if section.status is ClosureStatus.GREEN)
+
+    @classmethod
+    def blue_capabilities(cls) -> tuple[str, ...]:
+        return cls.BLUE_CAPABILITIES

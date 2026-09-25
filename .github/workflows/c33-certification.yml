@@ -100,6 +100,34 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  closure:
+    name: NEXO closure 41-60
+    needs: [backend]
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt
+      - name: Verify closure matrix 41-60
+        run: |
+          python -m unittest tests.test_phases_41_60 -v
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "src")
+          from nexo.phases_41_60 import Closure41To60
+          assert Closure41To60.validate()
+          assert Closure41To60.green_sections() == tuple(range(41, 61))
+          assert all(row["status"] != "RED" for row in Closure41To60.status_matrix())
+          print("NEXO 41-60 CLOSURE GREEN")
+          print("GREEN SECTIONS:", ",".join(map(str, Closure41To60.green_sections())))
+          print("BLUE CAPABILITIES:", ",".join(Closure41To60.blue_capabilities()))
+          PY
+
   live:
     name: Railway live connectivity
     needs: [backend, mobile, android]
@@ -311,7 +339,7 @@ jobs:
 
   final:
     name: C-33 final matrix gate
-    needs: [backend, mobile, android, live, codeql]
+    needs: [backend, mobile, android, live, codeql, closure]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -322,10 +350,13 @@ jobs:
           ANDROID_RESULT: ${{ needs.android.result }}
           LIVE_RESULT: ${{ needs.live.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
+          CLOSURE_RESULT: ${{ needs.closure.result }}
         run: |
           test "$BACKEND_RESULT" = success
           test "$MOBILE_RESULT" = success
           test "$ANDROID_RESULT" = success
           test "$LIVE_RESULT" = success
           test "$CODEQL_RESULT" = success
+          test "$CLOSURE_RESULT" = success
           echo "C-33 FINAL MATRIX GREEN"
+          echo "NEXO 41-60 CLOSURE GREEN"
