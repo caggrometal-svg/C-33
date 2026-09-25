@@ -65,11 +65,13 @@ Durable conversation context and deterministic ranking exist. Portable bundles e
 
 Next: short-term/session/persistent/research layers, confidence/importance/expiration/deduplication and complete user-facing export/import.
 
-### Model Hub — PARTIAL
+### Model Hub — PARTIAL / SELECTION POLICY IMPLEMENTED
 
-Provider-neutral profiles and cascade-backed operations exist.
+Provider-neutral profiles now carry capability metadata. `ModelSelectionPolicy` classifies simple, reasoning, summary, privacy and local intents and chooses a matching configured capability deterministically.
 
-Next: selection policy by capability, cost, latency and privacy, plus a real local provider.
+`ModelHub.select_for_task()` is connected to the real `ProviderCascade` for remote generation, including SSE. Privacy/local intent does not silently fall back to a remote provider when no local capability exists; the current deterministic local fallback is explicitly marked degraded.
+
+Next: cost/latency-aware selection and a real local provider.
 
 ### Tool Hub — PARTIAL
 
