@@ -58,7 +58,7 @@ class ToolHub:
         self,
         name: str,
         *args: Any,
-        network_allowed: bool = True,
+        network_allowed: bool = False,
         mutations_allowed: bool = False,
         **kwargs: Any,
     ) -> Any:
