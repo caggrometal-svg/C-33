@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      BASE_URL: https://c33-backend.onrender.com
+      BASE_URL: ${{ vars.C33_RENDER_BASE_URL }}
       EXPECTED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
@@ -27,6 +27,7 @@ jobs:
           import httpx
 
           base = os.environ["BASE_URL"].rstrip("/")
+          if not base: raise SystemExit("C33_RENDER_BASE_URL repository variable is required")
           expected = os.environ["EXPECTED_SHA"]
           deadline = time.time() + 180
 
