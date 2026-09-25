@@ -85,6 +85,82 @@ class ModelProfile:
     capabilities: tuple[str, ...] = ("chat", "stream")
 
 
+@dataclass(frozen=True, slots=True)
+class ModelSelectionDecision:
+    intent: str
+    preferred_capabilities: tuple[str, ...]
+    selected_provider: str | None
+    reason: str
+    local_required: bool = False
+
+
+class ModelSelectionPolicy:
+    """Deterministic task-to-model policy; never invents a local model."""
+
+    _INTENT_CAPABILITIES = {
+        "simple": ("fast", "low_latency", "chat"),
+        "reasoning": ("reasoning", "quality", "deep"),
+        "summary": ("economical", "cheap", "summary"),
+        "privacy": ("local", "private"),
+        "local": ("local", "private"),
+    }
+
+    @classmethod
+    def classify(cls, prompt: str) -> str:
+        lower = (prompt or "").strip().lower()
+        privacy_markers = ("privado", "privacidad", "confidencial", "sensible", "private")
+        local_markers = ("sin internet", "sin conexión", "offline", "localmente", "solo local")
+        summary_markers = ("resume", "resumen", "summarize", "summary")
+        reasoning_markers = (
+            "razona", "razonamiento", "analiza", "análisis",
+            "debug", "depura", "compara en profundidad",
+        )
+        if any(marker in lower for marker in privacy_markers):
+            return "privacy"
+        if any(marker in lower for marker in local_markers):
+            return "local"
+        if any(marker in lower for marker in summary_markers):
+            return "summary"
+        if any(marker in lower for marker in reasoning_markers):
+            return "reasoning"
+        return "simple"
+
+    @classmethod
+    def choose(cls, profiles: tuple[ModelProfile, ...], prompt: str) -> ModelSelectionDecision:
+        intent = cls.classify(prompt)
+        preferred = tuple(cls._INTENT_CAPABILITIES[intent])
+        local_required = intent in {"privacy", "local"}
+
+        for capability in preferred:
+            for profile in profiles:
+                if capability in profile.capabilities:
+                    return ModelSelectionDecision(
+                        intent=intent,
+                        preferred_capabilities=preferred,
+                        selected_provider=profile.provider_id,
+                        reason=f"capability_match:{capability}",
+                        local_required=local_required,
+                    )
+
+        if local_required:
+            return ModelSelectionDecision(
+                intent=intent,
+                preferred_capabilities=preferred,
+                selected_provider=None,
+                reason="local_capability_unavailable",
+                local_required=True,
+            )
+
+        fallback = profiles[0].provider_id if profiles else None
+        return ModelSelectionDecision(
+            intent=intent,
+            preferred_capabilities=preferred,
+            selected_provider=fallback,
+            reason="stable_profile_fallback" if fallback else "no_profiles",
+            local_required=False,
+        )
+
+
 class ModelHub:
     """Provider-neutral model surface backed by the existing cascade."""
 
@@ -111,6 +187,10 @@ class ModelHub:
                 if profile.provider_id == preferred:
                     return profile
         return self.profiles[0] if self.profiles else None
+
+    def select_for_task(self, prompt: str) -> ModelSelectionDecision:
+        """Return the provider selected by the deterministic task policy."""
+        return ModelSelectionPolicy.choose(self.profiles, prompt)
 
     async def complete(self, messages: list[dict[str, str]], budget: Any) -> Any:
         return await self.cascade.complete(messages, budget)
