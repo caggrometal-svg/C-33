@@ -100,6 +100,7 @@ class ResponseMeta(BaseModel):
     web_searches: list[str] = Field(default_factory=list)
     verification_ok: bool | None = None
     verification_warnings: list[str] = Field(default_factory=list)
+    web_sources_details: list[dict[str, Any]] = Field(default_factory=list)
 
 class ChatResponse(BaseModel):
     status: str
@@ -492,6 +493,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
                 "provider_attempts":len(generation_failure.attempts),
                 "used_local_fallback":True,
                 "web_searches":[],
+                "web_sources_details":[],
             }
             sync = await _commit_turn(st, effective_payload, synthesis, {**meta,"remaining_ms":budget.remaining_ms})
             meta["memory_sync"] = sync
@@ -525,6 +527,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
         "used_local_fallback":False,
         "verification_ok":verification.ok,
         "verification_warnings":list(verification.warnings),
+        "web_sources_details":list(result.source_records),
     }
     sync = await _commit_turn(st, effective_payload, result.response, {**meta,"remaining_ms":budget.remaining_ms})
     meta["memory_sync"] = sync
@@ -596,7 +599,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     budget = DeadlineBudget(config.backend_total_timeout_ms, deadline_epoch)
 
     logger.info("[NEXO_DEBUG_STREAM] prepare_begin request_id=%s", request_id)
-    messages, sources, _ = await _run_with_disconnect(
+    messages, sources, _, source_records = await _run_with_disconnect(
         request,
         b.prepare_messages(
             payload.message,
@@ -675,6 +678,7 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 "provider_attempts":stream_meta.attempts,
                 "used_local_fallback":False,
                 "web_searches":sources,
+                "web_sources_details":source_records,
                 "verification_ok":verification.ok,
                 "verification_warnings":list(verification.warnings),
             }

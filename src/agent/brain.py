@@ -9,6 +9,7 @@ from typing import Any
 
 from agent.nexo import NexoCore
 from nexo.architecture import LocalModel, ModelHub, NexoOrchestrator, ToolHub, VerificationEngine
+from nexo.sources import SourceLedger
 from memory.store import MemoryEntry
 from resilience.providers import DeadlineBudget, GenerationResult, ProviderCascade
 from resilience.state import PostgresState
@@ -25,6 +26,7 @@ class AgentResult:
     response: str
     trace: list[AgentTrace]
     sources: list[str]
+    source_records: list[dict[str, Any]]
     memory_hits: list[MemoryEntry]
     model_meta: dict[str, Any]
 
@@ -51,7 +53,7 @@ class Brain:
         conversation_id: str,
         personality_mode: str | None,
         budget: DeadlineBudget,
-    ) -> tuple[list[dict[str, str]], list[str], list[MemoryEntry]]:
+    ) -> tuple[list[dict[str, str]], list[str], list[MemoryEntry], list[dict[str, Any]]]:
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Prompt cannot be empty")
@@ -138,7 +140,10 @@ class Brain:
         messages: list[dict[str, str]] = [{"role": "system", "content": system_content}]
         messages.extend(history[-10:])
         messages.append({"role": "user", "content": prompt})
-        return messages, list(dict.fromkeys(sources)), memory_hits
+        source_ledger = SourceLedger(limit=5)
+        for source in dict.fromkeys(sources):
+            source_ledger.add(source)
+        return messages, source_ledger.urls, memory_hits, source_ledger.as_dicts()
 
     async def process(
         self,
@@ -150,7 +155,7 @@ class Brain:
         budget: DeadlineBudget | None = None,
     ) -> AgentResult:
         budget = budget or DeadlineBudget(12_000)
-        messages, sources, memory_hits = await self.prepare_messages(
+        messages, sources, memory_hits, source_records = await self.prepare_messages(
             prompt,
             user_id=user_id,
             conversation_id=conversation_id,
@@ -162,6 +167,7 @@ class Brain:
             response=generation.text,
             trace=[AgentTrace(1, "generate", generation.meta.final_reason)],
             sources=sources,
+            source_records=source_records,
             memory_hits=memory_hits,
             model_meta={
                 "provider_used": generation.meta.provider_used,
