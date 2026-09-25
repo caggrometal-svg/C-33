@@ -80,7 +80,7 @@ class Brain:
                 query = re.sub(r"^\s*/web\s+", "", prompt, flags=re.IGNORECASE).strip()
                 query = re.sub(r"^\s*web:\s*", "", query, flags=re.IGNORECASE).strip()
                 results = await asyncio.wait_for(
-                    self.tools.invoke("web_search", query),
+                    self.tools.invoke("web_search", query, network_allowed=True),
                     timeout=search_timeout,
                 )
                 if not results:
@@ -93,7 +93,7 @@ class Brain:
                 fetch_timeout = min(2.25, max(0.75, (budget.remaining_ms - 500) / 1000))
                 fetched = await asyncio.gather(
                     *[
-                        asyncio.wait_for(self.tools.invoke("web_fetch", item.url), timeout=fetch_timeout)
+                        asyncio.wait_for(self.tools.invoke("web_fetch", item.url, network_allowed=True), timeout=fetch_timeout)
                         for item in page_results
                     ],
                     return_exceptions=True,
