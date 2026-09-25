@@ -105,7 +105,7 @@ function createId() {
   return "c33-" + Date.now() + "-" + Math.random().toString(36).slice(2);
 }
 
-const userId = localStorage.getItem(USER_ID_KEY) || createId();
+let userId = localStorage.getItem(USER_ID_KEY) || createId();
 localStorage.setItem(USER_ID_KEY, userId);
 let conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
 localStorage.setItem(CONVERSATION_KEY, conversationId);
@@ -184,7 +184,8 @@ async function importNexoData(file) {
   const data = response?.data;
   if (!data || data.status !== "ok") throw new Error("import_failed");
   if (bundle.user_id) {
-    localStorage.setItem(USER_ID_KEY, String(bundle.user_id));
+    userId = String(bundle.user_id);
+    localStorage.setItem(USER_ID_KEY, userId);
   }
   const firstConversation = Array.isArray(bundle.messages)
     ? bundle.messages.map((m) => String(m?.conversation_id || "")).find(Boolean)
