@@ -146,3 +146,20 @@ The objective is not an impressive APK. The objective is a replaceable, inspecta
 - **30 — Export / data freedom:** checksummed export bundle contract is defined and tested.
 
 Implementation is in src/nexo/phases_23_30.py with regression coverage in tests/test_phases_23_30.py. These phases are not called production-certified until their current main SHA has a terminal Railway SUCCESS and the live path is observed.
+
+## Phase 31-40 contracts (2026-09-25)
+
+The roadmap's phases 31-40 are now represented by deterministic contracts in `src/nexo/phases_31_40.py` with regression coverage in `tests/test_phases_31_40.py`.
+
+- **31 — Multidispositivo:** `DeviceEndpoint` and `ReplicationManifest` define a shared-core/device boundary using the NEXO protocol envelope.
+- **32 — NEXO portable:** `PortableIdentity` and `PortableBundleContract` validate phase-30 export bundles and reject unsupported versions/checksum tampering.
+- **33 — Descentralización progresiva:** replication manifests keep identity and device membership separate from any single transport/provider.
+- **34 — IA local más fuerte:** `LocalRemoteCooperationPolicy` defines local context/memory work and optional remote reasoning/research without pretending a local LLM exists.
+- **35 — Private by default:** `PrivacyByDefaultPolicy` makes sensitive work local-first and permits network access only when the task requires current external information.
+- **36 — Research Mode:** bounded plan is question -> plan -> search -> read -> compare -> verify -> synthesize -> sources.
+- **37 — Memory Mode:** explicit priority order is history -> memory -> research -> preferences.
+- **38 — Action Mode:** tools/APIs/automations require explicit authorization and optional action scope.
+- **39 — Normal Chat:** chat mode is the simple path with memory/context and no unnecessary tools.
+- **40 — Auto Mode:** deterministic router selects among LOCAL, RESEARCH, MEMORY, ACTION and CHAT; the live Brain now records the selected mode and contract in turn metadata.
+
+Runtime certification remains subject to the same rule above: tests must pass, the deployed SHA must match the source SHA, the live route must be observed, and recovery behavior must be documented.
