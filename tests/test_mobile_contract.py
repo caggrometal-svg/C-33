@@ -18,6 +18,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('AI_READY_PATH: "/v1/ai-ready"', config)
 
 
+    def test_mobile_readiness_probe_targets_v1_ai_ready_get(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('"/v1/ai-ready"', app)
+        self.assertIn('method: "GET"', app)
+        self.assertIn("X-C33-Allow-Local-Fallback", app)
+
     def test_bundled_backend_fallback_matches_runtime_backend(self):
         config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
