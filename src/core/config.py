@@ -68,15 +68,9 @@ def load_settings(dotenv_path: str | None = ".env") -> Settings:
     if dotenv_path:
         load_dotenv(dotenv_path=dotenv_path, override=False)
 
-    api_key = (
-        os.getenv("MODEL_API_KEY", "").strip()
-        or os.getenv("OPENAI_API_KEY", "").strip()
-        or None
-    )
+    # FREE mode: model credentials are intentionally ignored.
+    api_key = None
     model_base_url = os.getenv("MODEL_BASE_URL", "https://vireonix.ai/v1").strip().rstrip("/")
-    if not model_base_url and os.getenv("OPENAI_API_KEY", "").strip():
-        model_base_url = "https://api.openai.com/v1"
-
     return Settings(
         app_name=os.getenv("APP_NAME", "C-33").strip() or "C-33",
         environment=os.getenv("APP_ENV", "development").strip() or "development",
