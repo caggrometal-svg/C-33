@@ -18,6 +18,12 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('AI_READY_PATH: "/v1/ai-ready"', config)
 
 
+    def test_bundled_backend_fallback_matches_runtime_backend(self):
+        config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('iac33-backup-production.up.railway.app', config)
+        self.assertIn('https://iac33-backup-production.up.railway.app', app)
+
     def test_mobile_runtime_config_has_safe_operational_bounds(self):
         config = (ROOT / "mobile" / "public" / "config.js").read_text(encoding="utf-8")
         self.assertIn("PROBE_TIMEOUT_MS: 4000", config)
