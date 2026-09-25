@@ -228,7 +228,9 @@ function connectedState() { return connectionState === CONNECTED_STATE; }
 
 function normalizeError(error) {
   if (error?.name === "AbortError") return "timeout";
-  if (error instanceof TypeError) return "network_error";
+  if (error instanceof TypeError) {
+    return error?.message ? "network_error: " + error.message : "network_error";
+  }
   return error instanceof Error ? error.message : "connection_error";
 }
 
@@ -433,7 +435,7 @@ async function streamChatWithFailover(options = {}) {
           reason: String(detail),
           body: truncateDiagnostic(errorBody),
         });
-        failures.push(backendRole(index) + ": " + detail);
+        failures.push(backendRole(index) + ": HTTP " + response.status + " " + String(detail));
         recordBackendFailure(index, String(detail));
         continue;
       }
@@ -496,7 +498,18 @@ async function streamChatWithFailover(options = {}) {
             finalMeta = data._meta || finalMeta;
           }
           if (eventName === "error") {
-            streamError = data?.reason || "stream_error";
+            const statusHint = data?.http_status ? "HTTP " + data.http_status : "";
+            const attemptHint = Array.isArray(data?.attempts)
+              ? data.attempts
+                  .map((attempt) => {
+                    const provider = attempt?.provider || "provider";
+                    const status = attempt?.status ? " HTTP " + attempt.status : "";
+                    const reason = attempt?.reason || "unknown";
+                    return provider + status + ": " + reason;
+                  })
+                  .join(", ")
+              : "";
+            streamError = [statusHint, data?.reason || "stream_error", attemptHint].filter(Boolean).join(" | ");
             finalMeta = data?._meta || finalMeta;
           }
           if (eventName === "done") finalMeta = data._meta || null;
@@ -620,7 +633,9 @@ async function requestWithFailoverHttp(path, options = {}) {
       if (Date.now() >= deadlineAt) break;
     }
   }
-  throw new Error("NEXO no pudo completar la operación. " + failures.join(" "));
+  throw new Error(
+    "NEXO no pudo completar la operación. " + (failures.length ? failures.join(" | ") : "sin diagnóstico")
+  );
 }
 
 function resizeInput() {
