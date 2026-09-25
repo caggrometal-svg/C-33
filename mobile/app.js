@@ -182,7 +182,9 @@ function renderWebSources(messageNode, sources) {
     link.href = url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.textContent = "[" + (index + 1) + "] " + (new URL(url).hostname || url);
+    let label = url;
+    try { label = new URL(url).hostname || url; } catch {}
+    link.textContent = "[" + (index + 1) + "] " + label;
     sourceBox.appendChild(link);
   });
   messageNode.appendChild(sourceBox);
