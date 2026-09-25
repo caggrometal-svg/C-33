@@ -13,6 +13,14 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('READY_PATH: "/ready"', config)
         self.assertIn('AI_READY_PATH: "/v1/ai-ready"', config)
 
+
+    def test_stream_allows_server_fallback_and_has_http_recovery(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('"X-C33-Allow-Local-Fallback": "true"', app)
+        self.assertIn('stream-http-recovery', app)
+        self.assertIn('stream-http-recovery-failed', app)
+        self.assertIn('requestWithFailover(API_PATH', app)
+
     def test_frontend_uses_single_public_runtime_config(self):
         self.assertTrue((ROOT / "mobile" / "public" / "config.js").exists())
         self.assertFalse((ROOT / "mobile" / "config.js").exists())
