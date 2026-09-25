@@ -168,6 +168,8 @@ class _SearchParser(HTMLParser):
 class WebTool:
     """HTTP web tool isolated from the agent loop and model provider."""
 
+    MAX_PAGE_BYTES = 1_000_000
+
     def __init__(self, timeout: float = 15.0, *, max_results: int = 5) -> None:
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
@@ -225,7 +227,7 @@ class WebTool:
         return results
 
     async def fetch(self, url: str) -> WebPage:
-        """Fetch a public HTTP(S) URL and extract a short deterministic summary."""
+        """Fetch a public HTTP(S) URL with bounded body size and redirect validation."""
         current_url = url.strip()
         for _ in range(4):
             await self._validate_public_url(current_url)
@@ -234,22 +236,43 @@ class WebTool:
                 follow_redirects=False,
                 headers=self._headers,
             ) as client:
-                response = await client.get(current_url)
-            if 300 <= response.status_code < 400:
-                location = response.headers.get("location", "").strip()
-                if not location:
-                    raise RuntimeError("redirect_without_location")
-                current_url = urljoin(current_url, location)
-                continue
-            response.raise_for_status()
-            final_url = str(response.url)
-            await self._validate_public_url(final_url)
-            content_type = response.headers.get("content-type", "")
+                async with client.stream("GET", current_url) as response:
+                    if 300 <= response.status_code < 400:
+                        location = response.headers.get("location", "").strip()
+                        if not location:
+                            raise RuntimeError("redirect_without_location")
+                        current_url = urljoin(current_url, location)
+                        continue
+
+                    response.raise_for_status()
+                    final_url = str(response.url)
+                    await self._validate_public_url(final_url)
+                    declared = response.headers.get("content-length", "").strip()
+                    try:
+                        if declared and int(declared) > self.MAX_PAGE_BYTES:
+                            raise RuntimeError("web_response_too_large")
+                    except ValueError:
+                        pass
+
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in response.aiter_bytes():
+                        total += len(chunk)
+                        if total > self.MAX_PAGE_BYTES:
+                            raise RuntimeError("web_response_too_large")
+                        chunks.append(chunk)
+                    raw_body = b"".join(chunks)
+                    encoding = response.encoding or "utf-8"
+                    content_type = response.headers.get("content-type", "")
+            try:
+                text = raw_body.decode(encoding, errors="replace").strip()
+            except LookupError:
+                text = raw_body.decode("utf-8", errors="replace").strip()
+
             if (
                 "text/html" not in content_type
                 and "application/xhtml+xml" not in content_type
             ):
-                text = response.text.strip()
                 return WebPage(
                     url=final_url,
                     title=final_url,
@@ -257,21 +280,21 @@ class WebTool:
                     summary=self.summarize(text),
                 )
 
-            body = response.text
+            parser = _PageParser()
+            parser.feed(text)
+            parser.close()
+            title = " ".join(parser.title_parts).strip() or final_url
+            clean_text = self._clean_text(" ".join(parser.text_parts))
+            if parser.meta_description:
+                clean_text = f"{parser.meta_description}\n\n{clean_text}".strip()
+            return WebPage(
+                url=final_url,
+                title=title,
+                text=clean_text,
+                summary=self.summarize(clean_text),
+            )
 
-        parser = _PageParser()
-        parser.feed(body)
-        parser.close()
-        title = " ".join(parser.title_parts).strip() or final_url
-        text = self._clean_text(" ".join(parser.text_parts))
-        if parser.meta_description:
-            text = f"{parser.meta_description}\n\n{text}".strip()
-        return WebPage(
-            url=final_url,
-            title=title,
-            text=text,
-            summary=self.summarize(text),
-        )
+        raise RuntimeError("too_many_redirects")
 
     def summarize(self, text: str, *, max_chars: int = 700) -> str:
         """Create a lightweight extractive summary from visible page text."""
