@@ -81,7 +81,7 @@ class Nexo61To100:
         )
     )
 
-    BLUE_CAPABILITIES = (
+    CLOSED_CAPABILITIES = (
         "REAL_LOCAL_LLM",
         "USER_EXPORT_IMPORT_ROUNDTRIP",
         "REAL_EXTERNAL_ACTIONS",
@@ -89,6 +89,7 @@ class Nexo61To100:
         "FULL_DECENTRALIZATION",
         "PEER_REPLICATION_QUIESCED",
     )
+    BLUE_CAPABILITIES = ()
 
     @classmethod
     def validate(cls) -> bool:
@@ -97,7 +98,8 @@ class Nexo61To100:
             numbers == tuple(range(61, 101))
             and all(section.validate() for section in cls.SECTIONS)
             and all(section.state is ClosureState.GREEN for section in cls.SECTIONS)
-            and bool(cls.BLUE_CAPABILITIES)
+            and not cls.BLUE_CAPABILITIES
+            and cls.CLOSED_CAPABILITIES
         )
 
     @classmethod
