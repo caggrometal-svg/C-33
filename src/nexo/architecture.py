@@ -54,10 +54,23 @@ class ToolHub:
             "risk": self.policy.get(name).risk,
         } for name in self.names)
 
-    async def invoke(self, name: str, *args: Any, **kwargs: Any) -> Any:
+    async def invoke(
+        self,
+        name: str,
+        *args: Any,
+        network_allowed: bool = True,
+        mutations_allowed: bool = False,
+        **kwargs: Any,
+    ) -> Any:
         key = name.strip().lower()
         if key not in self._tools:
             raise KeyError(f"unknown_tool:{key}")
+        if not self.policy.allows(
+            key,
+            network_allowed=network_allowed,
+            mutations_allowed=mutations_allowed,
+        ):
+            raise PermissionError(f"tool_not_allowed:{key}")
         result = self._tools[key](*args, **kwargs)
         if inspect.isawaitable(result):
             return await result
