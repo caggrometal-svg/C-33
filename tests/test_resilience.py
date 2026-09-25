@@ -503,8 +503,8 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 '"failure_domain":"kilo.ai","timeout_ms":5500},'
                 '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
                 '"failure_domain":"animica.dev","timeout_ms":5750},'
-                '{"id":"blockrun-cohere","base_url":"https://blockrun.ai/api/v1","model":"legacy",'
-                '"failure_domain":"blockrun.ai","timeout_ms":4000}]'
+                '{"id":"blockrun-cohere","base_url":"https://paid-provider.invalid/v1","model":"legacy",'
+                '"failure_domain":"paid-provider.invalid","timeout_ms":4000}]'
             )
             os.environ["AI_PROVIDER_ORDER"] = "blockrun-cohere,kilo,animica"
             os.environ["AI_DISABLED_PROVIDERS"] = "blockrun-cohere"
