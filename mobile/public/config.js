@@ -1,8 +1,6 @@
 window.C33_CONFIG = Object.freeze({
-  CONFIG_VERSION: "2026-09-25.4",
-  BACKEND_URLS: [
-    "https://iac33-backup-production.up.railway.app",
-  ],
+  CONFIG_VERSION: "2026-09-25.5",
+  BACKEND_URLS: [],
   CHAT_PATH: "/v1/chat",
   HEALTH_PATH: "/health",
   READY_PATH: "/ready",
