@@ -55,6 +55,12 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('"verification_ok":False', self.api)
         self.assertIn('"evidence_grade":None', self.api)
 
+    def test_stream_crash_emits_structured_error_event(self):
+        self.assertIn('yield "event: error\\n"', self.api)
+        self.assertIn('"reason": "stream_crash"', self.api)
+        self.assertIn('"final_reason": "stream_crash"', self.api)
+        self.assertNotIn('[NEXO_STREAM_CRASH]', self.api)
+
     def test_replication_payload_is_bounded_before_json_parse(self):
         self.assertIn('_MAX_REPLICATION_BODY_BYTES = 2_000_000', self.api)
         self.assertIn('if len(raw) > _MAX_REPLICATION_BODY_BYTES:', self.api)

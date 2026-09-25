@@ -809,7 +809,15 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 len(pieces),
             )
             if not await request.is_disconnected():
-                yield "data: [NEXO_STREAM_CRASH]\n\n"
+                yield "event: error\n"
+                yield "data: " + json.dumps({
+                    "reason": "stream_crash",
+                    "_meta": {
+                        "final_reason": "stream_crash",
+                        "system_status": "DEGRADED",
+                        "used_local_fallback": False,
+                    },
+                }, ensure_ascii=False) + "\n\n"
         except asyncio.CancelledError:
             raise
         finally:
