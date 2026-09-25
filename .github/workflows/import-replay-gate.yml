@@ -15,11 +15,12 @@ jobs:
     steps:
       - name: Export and re-import a real bundle
         env:
-          BASE: https://iac33-backup-production.up.railway.app
+          BASE: ${{ vars.C33_BASE_URL }}
         run: |
           python - <<'PY'
           import copy, hashlib, json, os, uuid, urllib.request
           base = os.environ["BASE"]
+          if not base: raise SystemExit("C33_BASE_URL repository variable is required")
           def post(path, body):
               req = urllib.request.Request(
                   base + path,
