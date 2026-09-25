@@ -165,6 +165,7 @@ class ProviderCascade:
                 )
         else:
             specs = [
+                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 10000),
                 ProviderSpec(
                     "kilo",
                     "https://api.kilo.ai/api/gateway",
@@ -174,7 +175,6 @@ class ProviderCascade:
                     9000,
                 ),
                 ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 9000),
-                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 8000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
