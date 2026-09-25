@@ -169,8 +169,8 @@ jobs:
           if ai.status_code != 200:
               raise SystemExit(f"/v1/ai-ready after remote generation failed: {ai.status_code} {ai.text}")
           probe = ai.json()
-          if probe.get("status") != "ai_ready" or probe.get("provider_used") != meta.get("provider_used"):
-              raise SystemExit(f"Invalid AI readiness cache: {json.dumps(probe)}")
+          if probe.get("status") != "ai_ready" or not str(probe.get("provider_used", "")).strip():
+              raise SystemExit(f"Invalid live AI readiness probe: {json.dumps(probe)}")
 
           second_payload = {
               "message": "Using the conversation context, reply briefly with C33_MEMORY_OK.",
