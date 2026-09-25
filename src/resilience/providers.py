@@ -104,8 +104,14 @@ class ProviderCascade:
 
     @classmethod
     def from_environment(cls, state: PostgresState) -> "ProviderCascade":
+        """Build only the zero-cost remote topology; paid providers are rejected, never selected."""
         raw = os.getenv("AI_PROVIDERS_JSON", "").strip()
+        free_allowlist = {
+            "api.kilo.ai": "kilo-auto/free",
+            "vireonix.ai": "auto",
+        }
         specs: list[ProviderSpec] = []
+
         if raw:
             data = json.loads(raw)
             if not isinstance(data, list):
@@ -116,20 +122,27 @@ class ProviderCascade:
                 base = str(item.get("base_url", "")).strip().rstrip("/")
                 pid = str(item.get("id", "")).strip()
                 model = str(item.get("model", "")).strip()
+                parsed = urlparse(base)
+                host = (parsed.hostname or "").lower()
                 if not pid or not base or not model:
                     raise ValueError("Each AI provider requires id, base_url and model")
-                parsed = urlparse(base)
-                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                    raise ValueError(f"Invalid provider URL for {pid}")
-                if pid == "kilo-m3-free":
+                if parsed.scheme != "https" or host not in free_allowlist:
+                    raise ProviderConfigurationError(f"paid_or_unapproved_provider_blocked:{pid}")
+                if item.get("api_key_env"):
+                    raise ProviderConfigurationError(f"api_key_provider_blocked:{pid}")
+                if host == "api.kilo.ai":
                     model = "kilo-auto/free"
-                    pid = "kilo"
-                api_key_env = str(item.get("api_key_env", "")).strip() or None
+                elif host == "vireonix.ai":
+                    model = "auto"
                 raw_capabilities = item.get("capabilities", ("chat", "stream"))
                 if isinstance(raw_capabilities, str):
-                    capabilities = tuple(dict.fromkeys(x.strip().lower() for x in raw_capabilities.split(",") if x.strip()))
+                    capabilities = tuple(dict.fromkeys(
+                        x.strip().lower() for x in raw_capabilities.split(",") if x.strip()
+                    ))
                 elif isinstance(raw_capabilities, (list, tuple)):
-                    capabilities = tuple(dict.fromkeys(str(x).strip().lower() for x in raw_capabilities if str(x).strip()))
+                    capabilities = tuple(dict.fromkeys(
+                        str(x).strip().lower() for x in raw_capabilities if str(x).strip()
+                    ))
                 else:
                     capabilities = ("chat", "stream")
                 if "chat" not in capabilities:
@@ -141,92 +154,45 @@ class ProviderCascade:
                         pid,
                         base,
                         model,
-                        api_key_env,
-                        str(item.get("failure_domain", parsed.netloc.lower())).strip(),
-                        max(500, int(item.get("timeout_ms", 7000))),
+                        None,
+                        str(item.get("failure_domain", host)).strip() or host,
+                        max(500, int(item.get("timeout_ms", 4500))),
                         capabilities,
                     )
                 )
         else:
-            configured_base = os.getenv("MODEL_BASE_URL", "").strip().rstrip("/")
-            configured_model = os.getenv("MODEL_NAME", "").strip()
-            configured_key_env = "OPENAI_API_KEY" if os.getenv("OPENAI_API_KEY", "").strip() else ("MODEL_API_KEY" if os.getenv("MODEL_API_KEY", "").strip() else None)
-
-            provider_a_url = os.getenv("AI_PROVIDER_A_BASE_URL", "").strip().rstrip("/")
-            provider_b_url = os.getenv("AI_PROVIDER_B_BASE_URL", "").strip().rstrip("/")
-            configured_order = [
-                x.strip()
-                for x in os.getenv("AI_PROVIDER_ORDER", "").split(",")
-                if x.strip()
+            specs = [
+                ProviderSpec(
+                    "kilo",
+                    "https://api.kilo.ai/api/gateway",
+                    "kilo-auto/free",
+                    None,
+                    "kilo.ai",
+                    4500,
+                ),
+                ProviderSpec(
+                    "vireonix",
+                    "https://vireonix.ai/v1",
+                    "auto",
+                    None,
+                    "vireonix.ai",
+                    4500,
+                ),
             ]
 
-            if provider_a_url:
-                a_base = provider_a_url
-                a_host = urlparse(a_base).netloc.lower()
-                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or "provider_a"
-                a_model = os.getenv("AI_PROVIDER_A_MODEL", "").strip() or ("auto" if "vireonix.ai" in a_host else "nvidia/nemotron-3.5-lightning")
-                a_key = os.getenv("AI_PROVIDER_A_KEY_ENV", "").strip() or configured_key_env
-            elif configured_base:
-                a_base = configured_base
-                a_host = urlparse(a_base).netloc.lower()
-                a_id = os.getenv("AI_PROVIDER_A_ID", "").strip() or (
-                    configured_order[0]
-                    if configured_order
-                    else ("vireonix" if "vireonix.ai" in a_host else ("blockrun" if "blockrun.ai" in a_host else a_host or "provider_a"))
-                )
-                a_model = configured_model or ("auto" if "vireonix.ai" in a_host else "nvidia/nemotron-3.5-lightning")
-                a_key = configured_key_env
-            else:
-                a_base = "https://vireonix.ai/v1"
-                a_host = "vireonix.ai"
-                a_id = "vireonix"
-                a_model = "auto"
-                a_key = None
-
-            a_capabilities = tuple(dict.fromkeys(
-                x.strip().lower()
-                for x in os.getenv("AI_PROVIDER_A_CAPABILITIES", "chat,stream").split(",")
-                if x.strip()
-            ))
-            if "chat" not in a_capabilities:
-                a_capabilities = ("chat",) + a_capabilities
-            if "stream" not in a_capabilities:
-                a_capabilities = a_capabilities + ("stream",)
-            specs = [ProviderSpec(a_id, a_base, a_model, a_key, a_host, 6_000, a_capabilities)]
-
-            if provider_b_url:
-                b_base = provider_b_url
-                b_host = urlparse(b_base).netloc.lower()
-                b_model = os.getenv("AI_PROVIDER_B_MODEL", "").strip() or ("nvidia/nemotron-3.5-lightning" if "blockrun.ai" in b_host else "auto")
-            elif "vireonix.ai" in a_host:
-                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/nemotron-3.5-lightning"
-            elif "blockrun.ai" in a_host:
-                b_base, b_host, b_model = "https://vireonix.ai/v1", "vireonix.ai", "auto"
-            else:
-                b_base, b_host, b_model = "https://blockrun.ai/api/v1", "blockrun.ai", "nvidia/nemotron-3.5-lightning"
-
-            specs.append(
-                ProviderSpec(
-                    os.getenv("AI_PROVIDER_B_ID", "").strip() or (
-                        configured_order[1]
-                        if len(configured_order) > 1
-                        else ("blockrun" if "blockrun.ai" in b_host else ("vireonix" if "vireonix.ai" in b_host else "provider_b"))
-                    ),
-                    b_base,
-                    b_model,
-                    os.getenv("AI_PROVIDER_B_KEY_ENV", "").strip() or None,
-                    b_host,
-                    4_000,
-                    tuple(dict.fromkeys(
-                        x.strip().lower()
-                        for x in os.getenv("AI_PROVIDER_B_CAPABILITIES", "chat,stream").split(",")
-                        if x.strip()
-                    )) or ("chat", "stream"),
-                )
-            )
         provider_ids = {spec.provider_id for spec in specs}
         if len(provider_ids) != len(specs):
             raise ProviderConfigurationError("duplicate_provider_ids")
+
+        for spec in specs:
+            host = (urlparse(spec.base_url).hostname or "").lower()
+            if host not in free_allowlist:
+                raise ProviderConfigurationError(f"paid_or_unapproved_provider_blocked:{spec.provider_id}")
+            if spec.api_key_env:
+                raise ProviderConfigurationError(f"api_key_provider_blocked:{spec.provider_id}")
+            expected_model = free_allowlist[host]
+            if spec.model != expected_model:
+                raise ProviderConfigurationError(f"non_free_model_blocked:{spec.provider_id}")
 
         disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}
         unknown_disabled = sorted(disabled - provider_ids)
@@ -237,7 +203,7 @@ class ProviderCascade:
         order = (
             [x.strip() for x in raw_order.split(",") if x.strip()]
             if raw_order
-            else [spec.provider_id for spec in specs]
+            else ["kilo", "vireonix"]
         )
         if len(set(order)) != len(order):
             raise ProviderConfigurationError("provider_order_contains_duplicates")
@@ -252,18 +218,10 @@ class ProviderCascade:
                 detail.append("missing=" + ",".join(missing_order))
             raise ProviderConfigurationError("provider_order_mismatch:" + ";".join(detail))
 
-        # Disabled providers remain part of the validated topology, but are removed
-        # symmetrically from both the provider set and runtime order.
         active_specs = [spec for spec in specs if spec.provider_id not in disabled]
         active_order = [provider_id for provider_id in order if provider_id not in disabled]
-
-        active_by_id = {spec.provider_id: spec for spec in active_specs}
-        for spec in active_specs:
-            if spec.api_key_env and not os.getenv(spec.api_key_env, "").strip():
-                raise ProviderConfigurationError(f"missing_api_key_for_provider:{spec.provider_id}")
-
-        if len(active_by_id) != len(active_order):
-            raise ProviderConfigurationError("active_provider_topology_mismatch")
+        if len(active_specs) < 2:
+            raise ProviderConfigurationError("provider_redundancy_not_configured")
 
         return cls(state, active_specs, active_order)
 
