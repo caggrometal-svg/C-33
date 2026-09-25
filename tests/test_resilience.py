@@ -241,6 +241,20 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.text, "C33_OK")
         self.assertIn(result.meta.provider_used, {"a","b"})
 
+    async def test_429_preserves_retry_after_on_terminal_failure(self):
+        state = FakeState()
+        specs = [ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000)]
+        cascade = ProviderCascade(
+            state,
+            specs,
+            ["a"],
+            transport=FaultTransport({"a.test": "429"}),
+        )
+        with self.assertRaises(GenerationFailure) as ctx:
+            await cascade.complete([{"role": "user", "content": "x"}], DeadlineBudget(5000))
+        self.assertEqual(ctx.exception.http_status, 429)
+        self.assertGreaterEqual(ctx.exception.retry_after_ms or 0, 1000)
+
     async def test_400_fails_over_to_second_provider(self):
         state = FakeState()
         specs = [
