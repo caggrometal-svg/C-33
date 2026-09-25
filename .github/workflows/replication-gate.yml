@@ -1,0 +1,47 @@
+name: C-33 Replication Gate
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replication:
+    name: Replication 459-to-0 integrity gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Drain and certify replication backlog
+        env:
+          BASE: https://iac33-backup-production.up.railway.app
+        run: |
+          python - <<'PY'
+          import json, os, time
+          import urllib.request
+          base = os.environ["BASE"]
+          deadline = time.time() + 180
+          last = None
+          while time.time() < deadline:
+              with urllib.request.urlopen(base + "/v1/replication/status", timeout=10) as r:
+                  last = json.load(r)
+              print(json.dumps(last, sort_keys=True), flush=True)
+              if (
+                  int(last.get("replication_pending", -1)) == 0
+                  and last.get("peer_status") == "ONLINE"
+                  and last.get("quiesced") is True
+                  and int(last.get("total_messages", -1)) == int(last.get("unique_message_ids", -2))
+              ):
+                  with urllib.request.urlopen(base + "/v1/replication/status", timeout=10) as r:
+                      peer = json.load(r)
+                  for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest"):
+                      if peer.get(key) != last.get(key):
+                          raise SystemExit("integrity_mismatch:" + key)
+                  if int(peer.get("replication_pending", -1)) != 0:
+                      raise SystemExit("peer_pending_nonzero")
+                  print("C33_REPLICATION_459_TO_0_GREEN")
+                  raise SystemExit(0)
+              time.sleep(5)
+          raise SystemExit("replication_gate_timeout:" + json.dumps(last, sort_keys=True))
+          PY
