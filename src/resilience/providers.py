@@ -587,13 +587,13 @@ class ProviderCascade:
         return min(5*60_000,int(30_000*(1+random.random()*0.25)))
 
     @staticmethod
-    @staticmethod
     def _parse_retry_after_ms(raw: str | None) -> int:
         try:
             return min(600_000, max(0, int(float(raw or "0") * 1000)))
         except (TypeError, ValueError, OverflowError):
             return 0
 
+    @staticmethod
     def _max_retry_after(attempts:list[dict[str,Any]]) -> int:
         return max((int(a.get("retry_after_ms",0)) for a in attempts),default=0)
 
