@@ -48,6 +48,13 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('model_config = {"populate_by_name": True}', self.api)
         self.assertIn('web_searches: list[str]', self.api)
 
+    def test_local_fallback_metadata_is_explicit_and_consistent(self):
+        self.assertIn('"used_local_fallback":True', self.api)
+        self.assertIn('"web_searches":[]', self.api)
+        self.assertIn('"web_sources_details":[]', self.api)
+        self.assertIn('"verification_ok":False', self.api)
+        self.assertIn('"evidence_grade":None', self.api)
+
     def test_replication_payload_is_bounded_before_json_parse(self):
         self.assertIn('_MAX_REPLICATION_BODY_BYTES = 2_000_000', self.api)
         self.assertIn('if len(raw) > _MAX_REPLICATION_BODY_BYTES:', self.api)

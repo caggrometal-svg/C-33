@@ -526,6 +526,9 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
                 "used_local_fallback":True,
                 "web_searches":[],
                 "web_sources_details":[],
+                "verification_ok":False,
+                "verification_warnings":[],
+                "evidence_grade":None,
             }
             sync = await _commit_turn(st, effective_payload, synthesis, {**meta,"remaining_ms":budget.remaining_ms})
             meta["memory_sync"] = sync
@@ -781,6 +784,11 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
                 "conversation_id":payload.conversation_id,
                 "provider_attempts":len(exc.attempts),
                 "used_local_fallback":True,
+                "web_searches":sources,
+                "web_sources_details":source_records,
+                "verification_ok":False,
+                "verification_warnings":[],
+                "evidence_grade":None,
             }
             await st.append_message(
                 conversation_id=payload.conversation_id,
