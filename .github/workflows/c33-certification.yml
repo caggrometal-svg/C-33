@@ -181,7 +181,19 @@ jobs:
               assert endpoint in api, endpoint
           for marker in ("exportNexoData", "importNexoData", "/v1/export", "/v1/import"):
               assert marker in mobile, marker
+          operational = "\n".join(
+              Path(path).read_text(encoding="utf-8")
+              for path in ("src/config.py", "src/core/config.py", "src/resilience/providers.py", ".env.example", "render.yaml")
+          ).lower()
+          for forbidden in ("blockrun.ai", "openai.com", "openai_api_key", "model_api_key"):
+              assert forbidden not in operational, "paid dependency remains: " + forbidden
+          assert "kilo-auto/free" in operational
+          assert "vireonix.ai" in operational
+          config_text = Path("src/config.py").read_text(encoding="utf-8")
+          assert "AI_ZERO_COST_MODE" in config_text
+          assert "paid_inference_keys_are_disabled_in_free_mode" in config_text
           print("NEXO SIX RUNTIME SURFACES GREEN")
+          print("NEXO FREE-ONLY POLICY GREEN")
           PY
 
   live:

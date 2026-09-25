@@ -17,7 +17,7 @@
 3. Failover: cada proveedor queda limitado a 4.5 s para preservar presupuesto global.
 4. Failover: regresión reproducible exige alcanzar un tercer proveedor dentro de 18 s.
 5. Producción: backend 18 s, cliente 22 s, red 8 s.
-6. Topología gratuita: Kilo Auto Free → BlockRun Nemotron → Vireonix.
+6. Topología FREE blindada: Kilo Auto Free → Vireonix; la ruta operativa no requiere créditos ni proveedor de pago y el código rechaza proveedores/modelos de pago y API keys de inferencia.
 7. La respuesta real no presenta el fallback local determinista como un LLM.
 
 ## Estado 0-40
@@ -88,7 +88,7 @@ Estas secciones son reglas de gobierno, prioridad, aceptación y objetivo final.
 El runtime distribuido pendiente (`peer_status=OFFLINE`, `replication_pending=393`) permanece 🔵 AZUL hasta disponer de peer operativo y evidencia de sincronización sin pérdida/duplicación.
 
 ## Siguiente bloque, no bloqueo
-- IA local real: integrar un proveedor local real y certificar funcionamiento offline.
+- IA local real: integrar un runtime local real y certificar funcionamiento offline.
 - Export/import de usuario: completar round-trip de extremo a extremo.
 - Autonomía externa: conectar acciones reales con autorización y stop conditions.
 - Portabilidad completa: migración de identidad/memoria/configuración entre instalaciones.

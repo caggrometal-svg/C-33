@@ -20,7 +20,7 @@ C-33
 -> autonomy
 -> portability
 -> decentralization
--> NEXO LIBRE
+-> NEXO LIBRE / FREE-ONLY
 ```
 
 ## 2026-09-25 status — CERTIFIED
@@ -34,7 +34,7 @@ C-33
 **Railway production:** SUCCESS (deployment `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3`)
 
 ### Closed in green
-C-33 connectivity, health, circuit breaker, observability, real provider cascade/failover logic, Web Engine live path, memory continuity, Model Hub, Tool Hub, bounded Orchestrator, contracts 23-40, closure 41-60, and the 61-100 engineering acceptance extension.
+C-33 connectivity, health, circuit breaker, observability, FREE-only provider cascade/failover logic, Web Engine live path, memory continuity, Model Hub, Tool Hub, bounded Orchestrator, contracts 23-40, closure 41-60, and the 61-100 engineering acceptance extension.
 
 ### Current architecture boundary
 **ETAPA 40 — AUTO MODE remains the last numbered architecture stage; closure sections 41-60 are now explicitly certified green at the contractual/automated level.**

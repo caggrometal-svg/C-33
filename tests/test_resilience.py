@@ -420,15 +420,17 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         try:
             for key in previous:
                 os.environ.pop(key, None)
-            os.environ["MODEL_BASE_URL"] = "https://alpha.test/v1"
-            os.environ["MODEL_NAME"] = "m-alpha"
-            os.environ["AI_PROVIDER_ORDER"] = "alpha,beta"
-            os.environ["AI_PROVIDER_A_CAPABILITIES"] = "chat,stream,fast"
-            os.environ["AI_PROVIDER_B_CAPABILITIES"] = "chat,stream,reasoning"
+            os.environ["AI_PROVIDERS_JSON"] = (
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":4500,"capabilities":["chat","stream","fast"]},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"legacy","failure_domain":"vireonix.ai","timeout_ms":4500,"capabilities":["chat","stream","reasoning"]}]'
+            )
+            os.environ["AI_PROVIDER_ORDER"] = "kilo,vireonix"
             cascade = ProviderCascade.from_environment(FakeState())
             by_id = {spec.provider_id: spec for spec in cascade.providers}
-            self.assertEqual(by_id["alpha"].capabilities, ("chat", "stream", "fast"))
-            self.assertEqual(by_id["beta"].capabilities, ("chat", "stream", "reasoning"))
+            self.assertEqual(by_id["kilo"].capabilities, ("chat", "stream", "fast"))
+            self.assertEqual(by_id["vireonix"].capabilities, ("chat", "stream", "reasoning"))
+            self.assertEqual(by_id["kilo"].model, "kilo-auto/free")
+            self.assertEqual(by_id["vireonix"].model, "auto")
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -448,14 +450,13 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         try:
             for key in previous:
                 os.environ.pop(key, None)
-            os.environ["MODEL_BASE_URL"] = "https://vireonix.ai/v1"
-            os.environ["MODEL_NAME"] = "auto"
-            os.environ["AI_PROVIDER_ORDER"] = "vireonix,blockrun"
             cascade = ProviderCascade.from_environment(FakeState())
             self.assertEqual(len(cascade.providers), 2)
-            self.assertEqual([p.timeout_ms for p in cascade.providers], [6000, 4000])
+            self.assertEqual([p.timeout_ms for p in cascade.providers], [4500, 4500])
             self.assertEqual(len(set(p.failure_domain for p in cascade.providers)), 2)
-            self.assertEqual([p.provider_id for p in cascade.providers], ["vireonix", "blockrun"])
+            self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "vireonix"])
+            self.assertEqual([p.model for p in cascade.providers], ["kilo-auto/free", "auto"])
+            self.assertTrue(all(p.api_key_env is None for p in cascade.providers))
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -472,20 +473,16 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo-m3-free","base_url":"https://api.kilo.ai/api/gateway","model":"legacy",'
-                '"failure_domain":"kilo.ai","timeout_ms":5500},'
-                '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
-                '"failure_domain":"animica.dev","timeout_ms":5750},'
-                '{"id":"blockrun-cohere","base_url":"https://blockrun.ai/api/v1","model":"legacy",'
-                '"failure_domain":"blockrun.ai","timeout_ms":4000}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":4500},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":4500}]'
             )
-            os.environ["AI_PROVIDER_ORDER"] = "kilo,animica"
+            os.environ["AI_PROVIDER_ORDER"] = "kilo"
             os.environ["AI_DISABLED_PROVIDERS"] = ""
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
             with self.assertRaises(ProviderConfigurationError) as ctx:
                 ProviderCascade.from_environment(FakeState())
             self.assertIn("provider_order_mismatch", str(ctx.exception))
-            self.assertIn("blockrun-cohere", str(ctx.exception))
+            self.assertIn("vireonix", str(ctx.exception))
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -502,19 +499,50 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         )}
         try:
             os.environ["AI_PROVIDERS_JSON"] = (
-                '[{"id":"kilo-m3-free","base_url":"https://api.kilo.ai/api/gateway","model":"legacy",'
-                '"failure_domain":"kilo.ai","timeout_ms":5500},'
-                '{"id":"animica","base_url":"https://animica.dev/v1","model":"kimi-k3",'
-                '"failure_domain":"animica.dev","timeout_ms":5750},'
-                '{"id":"blockrun-cohere","base_url":"https://blockrun.ai/api/v1","model":"legacy",'
-                '"failure_domain":"blockrun.ai","timeout_ms":4000}]'
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"legacy","failure_domain":"kilo.ai","timeout_ms":4500},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":4500}]'
             )
-            os.environ["AI_PROVIDER_ORDER"] = "blockrun-cohere,kilo,animica"
-            os.environ["AI_DISABLED_PROVIDERS"] = "blockrun-cohere"
+            os.environ["AI_PROVIDER_ORDER"] = "vireonix,kilo"
+            os.environ["AI_DISABLED_PROVIDERS"] = "kilo"
             os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
             cascade = ProviderCascade.from_environment(FakeState())
-            self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "animica"])
-            self.assertEqual(cascade.providers[0].model, "kilo-auto/free")
+            self.assertEqual([p.provider_id for p in cascade.providers], ["vireonix"])
+            self.assertEqual(cascade.providers[0].model, "auto")
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_paid_provider_is_rejected(self):
+        previous = {key: os.environ.get(key) for key in ("AI_PROVIDERS_JSON", "AI_PROVIDER_ORDER", "REQUIRE_PROVIDER_REDUNDANCY")}
+        try:
+            os.environ["AI_PROVIDERS_JSON"] = (
+                '[{"id":"paid","base_url":"https://paid-provider.invalid/v1","model":"paid-model","failure_domain":"paid-provider.invalid","timeout_ms":4500}]'
+            )
+            os.environ["AI_PROVIDER_ORDER"] = "paid"
+            os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "false"
+            with self.assertRaisesRegex(ProviderConfigurationError, "paid_or_unapproved_provider_blocked"):
+                ProviderCascade.from_environment(FakeState())
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_provider_api_key_is_rejected_in_free_mode(self):
+        previous = {key: os.environ.get(key) for key in ("AI_PROVIDERS_JSON", "AI_PROVIDER_ORDER", "REQUIRE_PROVIDER_REDUNDANCY")}
+        try:
+            os.environ["AI_PROVIDERS_JSON"] = (
+                '[{"id":"kilo","base_url":"https://api.kilo.ai/api/gateway","model":"kilo-auto/free","failure_domain":"kilo.ai","timeout_ms":4500,"api_key_env":"SOME_BILLABLE_KEY"},'
+                '{"id":"vireonix","base_url":"https://vireonix.ai/v1","model":"auto","failure_domain":"vireonix.ai","timeout_ms":4500}]'
+            )
+            os.environ["AI_PROVIDER_ORDER"] = "kilo,vireonix"
+            os.environ["REQUIRE_PROVIDER_REDUNDANCY"] = "true"
+            with self.assertRaisesRegex(ProviderConfigurationError, "api_key_provider_blocked"):
+                ProviderCascade.from_environment(FakeState())
         finally:
             for key, value in previous.items():
                 if value is None:
