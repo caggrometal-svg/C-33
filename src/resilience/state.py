@@ -648,6 +648,11 @@ class PostgresState:
                     except (KeyError, ValueError, TypeError) as exc:
                         raise ValueError(f"invalid_replication_message:{exc}") from exc
                     except asyncpg.PostgresError as exc:
+                        print(
+                            f"[NEXO_DEBUG_IMPORT_DATAERROR] type={exc.__class__.__name__} "
+                            f"detail={str(exc)[:1000]}",
+                            flush=True,
+                        )
                         raise ValueError(f"replication_storage_error:{exc.__class__.__name__}") from exc
         return accepted
 
