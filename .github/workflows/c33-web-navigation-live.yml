@@ -76,6 +76,44 @@ jobs:
               if not all(page.url in ai_context for page in pages):
                   raise SystemExit("AI context omitted fetched page links")
 
+              import sys
+              sys.path.insert(0, "src")
+              from agent.brain import Brain
+              from resilience.providers import DeadlineBudget
+
+              class FakeState:
+                  async def conversation_context(self, conversation_id, limit=12):
+                      return []
+
+                  async def search_memory(self, user_id, query, limit=12):
+                      return []
+
+              class Spec:
+                  provider_id = "kilo"
+                  model = "kilo-auto/free"
+                  failure_domain = "kilo.ai"
+                  capabilities = ("chat", "stream")
+
+              class FakeCascade:
+                  configured_provider_ids = ["kilo"]
+                  providers = [Spec()]
+
+              integration_brain = Brain(FakeState(), tool, FakeCascade())
+              messages, integrated_sources, _, _ = await integration_brain.prepare_messages(
+                  "busca en internet NASA Artemis II",
+                  user_id="web-live-certification",
+                  conversation_id="web-live-certification",
+                  personality_mode=None,
+                  budget=DeadlineBudget(12_000),
+              )
+              system_context = messages[0]["content"]
+              if len(integrated_sources) < 2:
+                  raise SystemExit(f"web result was not delivered to the AI context: {integrated_sources!r}")
+              if "Web source 1:" not in system_context:
+                  raise SystemExit("AI context does not contain web evidence")
+              if not all(url in system_context for url in integrated_sources[:2]):
+                  raise SystemExit("AI context omitted source links")
+
               print(json.dumps({
                   "status": "PASS",
                   "cost_model": "$0",
