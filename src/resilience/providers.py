@@ -109,7 +109,6 @@ class ProviderCascade:
         free_allowlist = {
             "api.kilo.ai": "kilo-auto/free",
             "vireonix.ai": "auto",
-            "text.pollinations.ai": "openai-fast",
         }
         specs: list[ProviderSpec] = []
 
@@ -127,6 +126,11 @@ class ProviderCascade:
                 host = (parsed.hostname or "").lower()
                 if not pid or not base or not model:
                     raise ValueError("Each AI provider requires id, base_url and model")
+                # C-33 production FREE mode deliberately excludes Pollinations.
+                # Ignore stale legacy entries rather than allowing them into the
+                # provider topology; any other unapproved provider is still fatal.
+                if host == "text.pollinations.ai":
+                    continue
                 if parsed.scheme != "https" or host not in free_allowlist:
                     raise ProviderConfigurationError(f"paid_or_unapproved_provider_blocked:{pid}")
                 if item.get("api_key_env"):
@@ -200,7 +204,7 @@ class ProviderCascade:
         order = (
             [x.strip() for x in raw_order.split(",") if x.strip()]
             if raw_order
-            else ["kilo", "vireonix", "pollinations"]
+            else ["kilo", "vireonix"]
         )
         if len(set(order)) != len(order):
             raise ProviderConfigurationError("provider_order_contains_duplicates")
