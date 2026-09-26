@@ -100,6 +100,81 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+
+  release_install:
+    name: Release APK checksum / emulator install
+    needs: [mobile]
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - working-directory: mobile
+        run: npm install --no-audit --no-fund
+      - working-directory: mobile
+        run: npm run build
+      - working-directory: mobile
+        run: npx cap add android
+      - working-directory: mobile
+        run: npx cap sync android
+      - name: Pin release version
+        working-directory: mobile/android
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          s = re.sub(r"versionCode\s+\d+", "versionCode 6", s, count=1)
+          s = re.sub(r'versionName\s+"[^"]+"', 'versionName "0.1.6"', s, count=1)
+          p.write_text(s)
+          PY
+      - name: Build release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+      - name: SHA-256 release APK
+        run: |
+          test -f mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+          sha256sum mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk | tee SHA256SUMS.txt
+      - name: Install release APK on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: "-no-window -noaudio -no-boot-anim -gpu swiftshader_indirect"
+          script: |
+            adb install -r mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            adb shell pm path com.c33.mobile
+            adb shell am force-stop com.c33.mobile
+            adb shell monkey -p com.c33.mobile 1
+            for i in $(seq 1 30); do
+              if adb shell dumpsys activity activities | grep -q "com.c33.mobile"; then
+                echo "C33_RELEASE_INSTALL_AND_LAUNCH: PASS"
+                exit 0
+              fi
+              sleep 1
+            done
+            adb shell dumpsys activity activities
+            exit 1
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: C33-0.1.6-release-evidence
+          path: |
+            mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
   closure:
     name: NEXO closure 41-60
     needs: [backend]
@@ -165,7 +240,7 @@ jobs:
 
   six_runtime_surfaces:
     name: NEXO six capability runtime surfaces
-    needs: [backend, mobile]
+    needs: [backend, mobile, release_install]
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: src
@@ -204,7 +279,7 @@ jobs:
 
   live:
     name: Railway live connectivity
-    needs: [backend, mobile]
+    needs: [backend, mobile, release_install]
     runs-on: ubuntu-latest
     env:
       EXPECTED_SHA: ${{ github.sha }}
@@ -626,7 +701,7 @@ jobs:
 
   sse_replay_recovery:
     name: Android resilience SSE replay / Railway / Deplexo
-    needs: [backend, mobile]
+    needs: [backend, mobile, release_install]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -807,7 +882,7 @@ jobs:
 
   deplexo:
     name: Deplexo runtime connectivity
-    needs: [backend, mobile]
+    needs: [backend, mobile, release_install]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -876,7 +951,7 @@ jobs:
 
   final:
     name: C-33 final matrix gate
-    needs: [backend, mobile, android, live, deplexo, sse_replay_recovery, codeql, closure, closure_61_100, six_runtime_surfaces]
+    needs: [backend, mobile, android, release_install, live, deplexo, sse_replay_recovery, codeql, closure, closure_61_100, six_runtime_surfaces]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -885,6 +960,7 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           MOBILE_RESULT: ${{ needs.mobile.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
+          RELEASE_INSTALL_RESULT: ${{ needs.release_install.result }}
           LIVE_RESULT: ${{ needs.live.result }}
           DEPLEXO_RESULT: ${{ needs.deplexo.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
@@ -895,6 +971,7 @@ jobs:
           test "$BACKEND_RESULT" = success
           test "$MOBILE_RESULT" = success
           test "$ANDROID_RESULT" = success
+          test "$RELEASE_INSTALL_RESULT" = success
           test "$LIVE_RESULT" = success
           test "$DEPLEXO_RESULT" = success
           test "$CODEQL_RESULT" = success
