@@ -121,7 +121,7 @@ function sanitizeDiagnosticDetails(details = {}) {
     }
   }
   if (!safe.request_ref && source.request_id) {
-    safe.request_ref = String(source.request_id).slice(-8);
+    safe.request_ref = diagnosticRequestRef(source.request_id);
   }
   safe.ts = new Date(details?.ts || Date.now()).toISOString();
   return safe;
