@@ -511,11 +511,15 @@ async function streamChatWithFailover(options = {}) {
     if (remaining <= 750) break;
     const base = BACKEND_URLS[index];
     if (!base) continue;
+    const attemptTimeout = Math.min(
+      remaining,
+      Math.max(1000, Number(C.FAILOVER_ATTEMPT_TIMEOUT_MS || remaining)),
+    );
 
     transition("STREAMING", "NEXO · IA remota " + backendRole(index) + "…");
     const controller = new AbortController();
     activeControllers.add(controller);
-    const timer = setTimeout(() => controller.abort(), remaining);
+    const timer = setTimeout(() => controller.abort(), attemptTimeout);
     let receivedToken = false;
     let fallbackReceived = false;
     let streamError = null;
@@ -725,6 +729,10 @@ async function requestWithFailoverHttp(path, options = {}) {
     if (remaining <= 500) break;
     const base = BACKEND_URLS[index];
     if (!base) continue;
+    const attemptTimeout = Math.min(
+      remaining,
+      Math.max(1000, Number(C.FAILOVER_ATTEMPT_TIMEOUT_MS || remaining)),
+    );
     transition("ONLINE", "NEXO · " + backendRole(index) + "…");
     try {
       const response = await fetchBounded(
@@ -737,7 +745,7 @@ async function requestWithFailoverHttp(path, options = {}) {
             "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
           },
         },
-        remaining,
+        attemptTimeout,
       );
       recordDiagnostic("http-response", {
         backend: index,
