@@ -304,29 +304,35 @@ async def lifespan(_: FastAPI):
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )"""
             )
-        cascade = ProviderCascade.from_environment(state)
-        try:
-            cascade.validate_configuration()
-        except ProviderConfigurationError:
-            logger.exception(
-                "[NEXO_DEBUG_CONFIG] provider_configuration_invalid "
-                "deployment_sha=%s environment=%s",
+        if config.role == "secondary":
+            logger.info(
+                "[C33_SECONDARY] replication-only peer initialized deployment_sha=%s",
                 _deployment_sha(),
-                config.environment,
             )
-            raise
-        logger.info(
-            "[NEXO_DEBUG_CONFIG] provider_configuration_valid ids=%s "
-            "count=%s failure_domains=%s redundancy_required=%s local_fallback_enabled=%s",
-            cascade.configured_provider_ids,
-            cascade.configured_provider_count,
-            cascade.failure_domains,
-            cascade.require_redundancy,
-            config.local_fallback_enabled,
-        )
-        brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
-        await _portable_import_selftest(state)
-        replication_task = asyncio.create_task(_replication_loop())
+        else:
+            cascade = ProviderCascade.from_environment(state)
+            try:
+                cascade.validate_configuration()
+            except ProviderConfigurationError:
+                logger.exception(
+                    "[NEXO_DEBUG_CONFIG] provider_configuration_invalid "
+                    "deployment_sha=%s environment=%s",
+                    _deployment_sha(),
+                    config.environment,
+                )
+                raise
+            logger.info(
+                "[NEXO_DEBUG_CONFIG] provider_configuration_valid ids=%s "
+                "count=%s failure_domains=%s redundancy_required=%s local_fallback_enabled=%s",
+                cascade.configured_provider_ids,
+                cascade.configured_provider_count,
+                cascade.failure_domains,
+                cascade.require_redundancy,
+                config.local_fallback_enabled,
+            )
+            brain = Brain(state, WebTool(timeout=min(config.network_timeout_seconds, 8.0), max_results=5), cascade)
+            await _portable_import_selftest(state)
+            replication_task = asyncio.create_task(_replication_loop())
     try:
         yield
     finally:
@@ -401,8 +407,19 @@ async def ready() -> ReadyResponse:
         integrity.get("unique_message_ids", -1),
         peer,
     )
-    if state is None or cascade is None or not db_ok:
+    if state is None or not db_ok:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"database_unavailable"})
+    if config.role == "secondary":
+        return ReadyResponse(
+            status="ready",
+            service="C-33",
+            deployment_sha=_deployment_sha(),
+            database="ok",
+            peer_configured=False,
+            provider_count=0,
+        )
+    if cascade is None:
+        raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"ai_runtime_unavailable"})
     if config.environment == "production" and (pending != 0 or peer != "ONLINE"):
         raise HTTPException(
             status_code=503,
@@ -460,8 +477,10 @@ async def local_ai_status() -> dict[str, Any]:
 
 @app.get("/v1/replication/status")
 async def replication_status() -> dict[str, Any]:
-    st, _, _ = _require_runtime()
-    peer = await _peer_probe()
+    st = state
+    if st is None:
+        raise HTTPException(status_code=503, detail="backend_state_not_initialized")
+    peer = await _peer_probe() if config.role != "secondary" else "NOT_CONFIGURED"
     pending = await st.replication_pending_count()
     integrity = await st.replication_integrity()
     peer_host = None
@@ -476,7 +495,7 @@ async def replication_status() -> dict[str, Any]:
         "peer_status": peer,
         "replication_pending": pending,
         **integrity,
-        "quiesced": peer == "ONLINE" and pending == 0,
+        "quiesced": pending == 0 if config.role == "secondary" else peer == "ONLINE" and pending == 0,
     }
 
 @app.post("/v1/export")
