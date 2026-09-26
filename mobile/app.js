@@ -21,26 +21,129 @@ const IDENTITY_PUBLIC_KEY = "C33_IDENTITY_PUBLIC_JWK";
 const IDENTITY_PRIVATE_KEY = "C33_IDENTITY_PRIVATE_JWK";
 const SESSION_TOKEN_KEY = "C33_IDENTITY_SESSION";
 const SESSION_EXPIRES_KEY = "C33_IDENTITY_SESSION_EXPIRES";
-const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V1";
-const MAX_DIAGNOSTICS = 40;
+const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V2";
+const MAX_DIAGNOSTICS = 20;
+const MAX_DIAGNOSTIC_REPORT = 10;
 const CONFIG_VERSION = String(C.CONFIG_VERSION || "bundled-fallback");
 
-function truncateDiagnostic(value, max = 4000) {
-  const text = value == null ? "" : String(value);
-  return text.length > max ? text.slice(0, max) + "…[truncated]" : text;
+const DIAGNOSTIC_KEYS = new Set([
+  "ts",
+  "stage",
+  "status",
+  "backend",
+  "role",
+  "endpoint",
+  "content_type",
+  "elapsed_ms",
+  "reason",
+  "provider",
+  "config_version",
+  "backend_count",
+  "request_ref",
+  "sequence",
+  "replayed",
+  "recovery",
+  "received_token",
+  "fallback_received",
+  "interrupted_after_partial",
+  "used_local_fallback",
+]);
+
+const DIAGNOSTIC_REASON_CODES = new Set([
+  "timeout",
+  "network_error",
+  "http_error",
+  "auth_error",
+  "connection_error",
+  "empty_stream",
+  "stream_body_unavailable",
+  "stream_crash",
+  "remote_exhausted",
+  "backend_deadline_exceeded",
+  "request_id_missing",
+  "request_id_mismatch",
+  "recovery_exhausted",
+  "remote_unavailable",
+  "runtime_config_missing_or_empty",
+  "replay_unavailable",
+  "replay_complete",
+  "identity_bootstrap_failed",
+]);
+
+function diagnosticReason(value) {
+  const raw = String(value == null ? "" : value).trim().toLowerCase();
+  if (!raw) return "";
+  const urlStripped = raw.replace(/(?:https?:\/\/|www\.)\S+/gi, "[url]");
+  const bearerStripped = urlStripped.replace(/bearer\s+[a-z0-9._~-]+/gi, "[credential]");
+  const redacted = bearerStripped.replace(/[A-Za-z0-9+/_=-]{24,}/g, "[opaque]");
+  const primary = redacted.split(/[|:]/, 1)[0].trim();
+  return DIAGNOSTIC_REASON_CODES.has(primary) ? primary : "unclassified_error";
+}
+
+function diagnosticEndpoint(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  try {
+    return new URL(raw, window.location.origin).pathname.slice(0, 160) || "/";
+  } catch {
+    return raw.split(/[?#]/, 1)[0].slice(0, 160);
+  }
+}
+
+function diagnosticRequestRef(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  return raw.replace(/[^A-Za-z0-9]/g, "").slice(-10);
+}
+
+function sanitizeDiagnosticDetails(details = {}) {
+  const source = details && typeof details === "object" ? details : {};
+  const safe = {};
+  for (const key of DIAGNOSTIC_KEYS) {
+    if (!(key in source)) continue;
+    const value = source[key];
+    if (value == null) continue;
+    if (key === "stage") safe.stage = String(value).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+    else if (key === "reason") safe.reason = diagnosticReason(value);
+    else if (key === "endpoint") safe.endpoint = diagnosticEndpoint(value);
+    else if (key === "request_ref" || key === "provider") safe[key] = String(value).replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 80);
+    else if (key === "sequence" || key === "recovery") safe[key] = String(value).replace(/[^A-Za-z0-9._ ->]/g, "_").slice(0, 80);
+    else if (key === "config_version") safe[key] = String(value).replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 40);
+    else if (key === "content_type" || key === "role") safe[key] = String(value).replace(/[^A-Za-z0-9._+/-]/g, "_").slice(0, 80);
+    else if (key === "status" || key === "backend" || key === "elapsed_ms" || key === "backend_count") {
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) safe[key] = Math.max(0, Math.min(1_000_000, Math.round(numeric)));
+    } else if (typeof value === "boolean") {
+      safe[key] = value;
+    }
+  }
+  safe.ts = new Date(details?.ts || Date.now()).toISOString();
+  return safe;
 }
 
 function readDiagnostics() {
   try {
     const parsed = JSON.parse(localStorage.getItem(DIAGNOSTIC_KEY) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => sanitizeDiagnosticDetails(entry))
+      .filter((entry) => entry.stage)
+      .slice(0, MAX_DIAGNOSTICS);
   } catch {
     return [];
   }
 }
 
+function compactDiagnosticsStorage() {
+  try {
+    const compacted = readDiagnostics();
+    if (compacted.length) localStorage.setItem(DIAGNOSTIC_KEY, JSON.stringify(compacted));
+    else localStorage.removeItem(DIAGNOSTIC_KEY);
+  } catch {}
+}
+
 function recordDiagnostic(stage, details = {}) {
-  const entry = { ts: new Date().toISOString(), stage, ...details };
+  const entry = sanitizeDiagnosticDetails({ ...details, stage });
   const entries = [entry, ...readDiagnostics()].slice(0, MAX_DIAGNOSTICS);
   try { localStorage.setItem(DIAGNOSTIC_KEY, JSON.stringify(entries)); } catch {}
   try { console.info("[C33][DIAG]", entry); } catch {}
@@ -48,35 +151,25 @@ function recordDiagnostic(stage, details = {}) {
   return entry;
 }
 
-if (USING_BUNDLED_BACKEND_FALLBACK) {
-  recordDiagnostic("config-fallback", {
-    reason: "runtime_config_missing_or_empty",
-    config_version: CONFIG_VERSION,
-    backend_count: BACKEND_URLS.length,
-    backend: BACKEND_URLS[0] || "",
-  });
-}
-
-function responseDiagnostic(response, startedAt) {
-  return {
-    url: response?.url || "",
-    status: response?.status ?? null,
-    statusText: response?.statusText || "",
-    contentType: response?.headers?.get("content-type") || "",
-    elapsed_ms: Math.round(performance.now() - startedAt),
-  };
-}
-
 function diagnosticReport() {
-  const entries = readDiagnostics().slice(0, 12);
+  const entries = readDiagnostics().slice(0, MAX_DIAGNOSTIC_REPORT);
   if (!entries.length) return "C33 diagnóstico: no hay registros todavía.";
   return entries.map((entry, index) => {
-    const body = entry.body ? "\nbody=" + truncateDiagnostic(entry.body, 1800) : "";
-    const reason = entry.reason ? " reason=" + truncateDiagnostic(entry.reason, 500) : "";
-    const statusCode = entry.status == null ? "" : " HTTP=" + entry.status;
-    const provider = entry.provider ? " provider=" + truncateDiagnostic(entry.provider, 300) : "";
-    return "[" + index + "] " + entry.ts + " | " + entry.stage + statusCode + reason + provider + body;
-  }).join("\n\n");
+    const parts = [
+      "[" + index + "]",
+      entry.ts,
+      entry.stage,
+      entry.status != null ? "HTTP=" + entry.status : "",
+      entry.role || entry.recovery || "",
+      entry.endpoint || "",
+      entry.reason ? "reason=" + entry.reason : "",
+      entry.provider ? "provider=" + entry.provider : "",
+      entry.elapsed_ms != null ? "elapsed_ms=" + entry.elapsed_ms : "",
+      entry.request_ref ? "request_ref=" + entry.request_ref : "",
+      entry.replayed === true ? "replayed=true" : "",
+    ].filter(Boolean);
+    return parts.join(" | ");
+  }).join("\n");
 }
 
 window.C33_DIAGNOSTICS = Object.freeze({
@@ -84,6 +177,10 @@ window.C33_DIAGNOSTICS = Object.freeze({
   report: () => diagnosticReport(),
   clear: () => { try { localStorage.removeItem(DIAGNOSTIC_KEY); } catch {} },
 });
+
+compactDiagnosticsStorage();
+
+
 
 
 const form = document.getElementById("chat-form");
