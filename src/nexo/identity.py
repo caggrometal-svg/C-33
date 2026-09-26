@@ -205,3 +205,20 @@ def assert_identity_matches(session: IdentitySession, requested_user_id: str | N
         raise IdentityAuthError("user_id_required")
     if not hmac.compare_digest(session.identity_id, requested):
         raise IdentityAuthError("identity_mismatch")
+
+
+def assert_bundle_belongs_to_identity(session: IdentitySession, bundle: dict[str, Any]) -> None:
+    if not isinstance(bundle, dict):
+        raise IdentityAuthError("invalid_bundle")
+    bundle_identity = str(bundle.get("identity_id") or "").strip()
+    if bundle_identity and not hmac.compare_digest(session.identity_id, bundle_identity):
+        raise IdentityAuthError("identity_mismatch")
+    messages = bundle.get("messages", [])
+    if not isinstance(messages, list):
+        raise IdentityAuthError("invalid_bundle_messages")
+    for message in messages:
+        if not isinstance(message, dict):
+            raise IdentityAuthError("invalid_bundle_message")
+        message_user_id = str(message.get("user_id") or "").strip()
+        if not hmac.compare_digest(session.identity_id, message_user_id):
+            raise IdentityAuthError("cross_identity_import")
