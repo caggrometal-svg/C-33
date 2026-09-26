@@ -13,8 +13,8 @@ class SixCapabilityBoundaryTests(unittest.TestCase):
             "FULL_DECENTRALIZATION",
             "PEER_REPLICATION_QUIESCED",
         }
-        self.assertTrue(required.issubset(set(Nexo61To100.CLOSED_CAPABILITIES)))
-        self.assertEqual(Nexo61To100.blue_capabilities(), ())
+        self.assertTrue(required.issubset(set(Nexo61To100.blue_capabilities())))
+        self.assertEqual(Nexo61To100.closed_capabilities(), ())
 
     def test_no_red_state(self):
         self.assertFalse(Nexo61To100.has_red())
