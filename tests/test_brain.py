@@ -104,6 +104,25 @@ class Phase20ArchitectureTests(unittest.TestCase):
         self.assertTrue(plan.use_web)
 
 
+    def test_orchestrator_treats_bare_nexo_as_self_reference(self):
+        from nexo.architecture import NexoOrchestrator
+
+        bare = NexoOrchestrator().plan("Nexo", [object()])
+        self.assertFalse(bare.use_web)
+        self.assertFalse(bare.use_memory)
+        self.assertFalse(bare.verify)
+        self.assertEqual(bare.reason, "self-reference")
+
+        greeting = NexoOrchestrator().plan("Hola Nexo", [object()])
+        self.assertFalse(greeting.use_web)
+        self.assertFalse(greeting.use_memory)
+
+    def test_external_nexo_request_is_not_mistaken_for_self_reference(self):
+        from agent.nexo import NexoCore
+
+        self.assertFalse(NexoCore.is_self_reference("Nexo empresa de criptomonedas"))
+        self.assertFalse(NexoCore.is_self_reference("Nexo plataforma de activos digitales"))
+
     def test_model_selection_policy_routes_by_capability(self):
         from nexo.architecture import ModelHub
 
