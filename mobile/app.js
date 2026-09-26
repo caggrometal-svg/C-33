@@ -686,6 +686,7 @@ async function streamChatWithFailover(options = {}) {
     let receivedToken = false;
     let fallbackReceived = false;
     let streamError = null;
+    let assistantNode = null;
 
     try {
       const response = await fetch(base + "/v1/ai/stream", {
@@ -742,7 +743,7 @@ async function streamChatWithFailover(options = {}) {
       const reader = response.body.getReader();
       let buffer = "";
       let finalMeta = null;
-      const assistantNode = addMessage("", "assistant");
+      assistantNode = addMessage("", "assistant");
 
       while (true) {
         const { value, done } = await reader.read();
@@ -868,7 +869,9 @@ async function streamChatWithFailover(options = {}) {
       failures.push(backendRole(index) + ": " + reason);
       recordBackendFailure(index, reason);
       if (receivedToken) {
-        throw new Error("NEXO stream interrumpido: " + reason);
+        const interruptedError = new Error("NEXO stream interrumpido: " + reason);
+        interruptedError.partialNode = assistantNode;
+        throw interruptedError;
       }
     } finally {
       clearTimeout(timer);
@@ -1178,7 +1181,7 @@ form.addEventListener("submit", async (event) => {
     });
   } catch (error) {
     const hadPartialStream = /NEXO stream interrumpido:/i.test(String(error?.message || ""));
-    const partialNode = [...chat.querySelectorAll(".message.assistant")].at(-1) || null;
+    const partialNode = error?.partialNode || null;
     if (hadPartialStream || error?.code === "REMOTE_EXHAUSTED") {
       recordDiagnostic("stream-recovery-required", {
         reason: error.message || "REMOTE_EXHAUSTED",
