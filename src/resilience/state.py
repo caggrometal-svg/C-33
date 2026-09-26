@@ -283,21 +283,34 @@ class PostgresState:
                     )
         return self._row_to_message(row)
 
-    async def existing_assistant_for_request(self, conversation_id: str, request_id: str) -> ReplicationMessage | None:
+    async def existing_assistant_for_request(
+        self,
+        conversation_id: str,
+        request_id: str,
+        user_id: str,
+    ) -> ReplicationMessage | None:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
-                "FROM c33_messages WHERE conversation_id=$1 AND request_id=$2 AND role='assistant' LIMIT 1",
+                "FROM c33_messages WHERE conversation_id=$1 AND request_id=$2 AND user_id=$3 AND role='assistant' LIMIT 1",
                 conversation_id,
                 request_id,
+                user_id,
             )
         return self._row_to_message(row) if row else None
 
-    async def conversation_context(self, conversation_id: str, limit: int = 12) -> list[dict[str, str]]:
+    async def conversation_context(
+        self,
+        conversation_id: str,
+        user_id: str,
+        limit: int = 12,
+    ) -> list[dict[str, str]]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT role,content FROM c33_messages WHERE conversation_id=$1 ORDER BY seq DESC LIMIT $2",
+                "SELECT role,content FROM c33_messages "
+                "WHERE conversation_id=$1 AND user_id=$2 ORDER BY seq DESC LIMIT $3",
                 conversation_id,
+                user_id,
                 max(1, min(limit, 40)),
             )
         return [{"role": str(r["role"]), "content": str(r["content"])} for r in reversed(rows)]
