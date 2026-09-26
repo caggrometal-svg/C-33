@@ -256,7 +256,7 @@ async def _replication_loop() -> None:
     while True:
         try:
             if config.peer_url and config.peer_replication_secret:
-                await state.replicate_batch(config.peer_url, config.peer_replication_secret, limit=100, timeout_ms=30000)
+                await state.replicate_batch(config.peer_url, config.peer_replication_secret, limit=250, timeout_ms=30000)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
