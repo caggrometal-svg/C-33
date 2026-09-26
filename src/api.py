@@ -280,6 +280,8 @@ async def lifespan(_: FastAPI):
         state = PostgresState(db_pool, schema=config.database_schema)
         await state.initialize()
         peer_bootstrap = await state.ensure_replication_peer(config.peer_url)
+        if config.role != "secondary" and config.peer_url and config.peer_replication_secret:
+            await state.requeue_pending_replication()
         startup_pending = await state.replication_pending_count()
         startup_integrity = await state.replication_integrity()
         print(
