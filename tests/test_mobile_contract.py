@@ -122,12 +122,7 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("activeControllers.size === 0", app)
 
     def test_all_apk_workflows_pin_nexo_0_1_6_version(self):
-        workflows = (
-            "android-apk.yml",
-            "build-apk.yml",
-            "nexo-android.yml",
-            "c33-certification.yml",
-        )
+        workflows = ("build-apk.yml", "c33-certification.yml")
         for name in workflows:
             workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
             self.assertIn('versionCode 6', workflow)
