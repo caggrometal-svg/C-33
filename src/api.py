@@ -184,7 +184,7 @@ class ClientDisconnected(RuntimeError):
     pass
 
 def _deployment_sha() -> str:
-    return os.getenv("C33_BUILD_SHA") or os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or "unknown"
+    return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or os.getenv("C33_BUILD_SHA") or "unknown"
 
 def _backend_url() -> str:
     configured = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
