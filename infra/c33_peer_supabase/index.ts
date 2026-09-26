@@ -1,6 +1,6 @@
 import { withSupabase } from "npm:@supabase/server";
 
-const MAX_BODY=2_000_000, MAX_BATCH=100, SCHEMA="c33_peer", TABLE="messages", CONFIG="config";
+const MAX_BODY=2_000_000, MAX_BATCH=250, SCHEMA="c33_peer", TABLE="messages", CONFIG="config";
 const encoder=new TextEncoder();
 const canonical=(v)=>Array.isArray(v)?v.map(canonical):(v&&typeof v==="object"?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v);
 const hex=(bytes)=>Array.from(new Uint8Array(bytes)).map(b=>b.toString(16).padStart(2,"0")).join("");
