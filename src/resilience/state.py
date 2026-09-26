@@ -522,7 +522,7 @@ class PostgresState:
         accepted = 0
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                for item in messages[:100]:
+                for item in messages:
                     try:
                         if not isinstance(item, dict):
                             raise ValueError("message_must_be_object")
