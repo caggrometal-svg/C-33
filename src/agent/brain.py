@@ -135,14 +135,18 @@ class Brain:
         if not prompt:
             raise ValueError("Prompt cannot be empty")
         history = await self.state.conversation_context(conversation_id, user_id, limit=12)
-        cache_key = f"memory:{user_id}:{prompt.lower()[:512]}"
-        memory_hits = self.cache.get(cache_key)
-        if memory_hits is None:
-            memory_hits = await self.state.search_memory(user_id, prompt, limit=12)
-            self.cache.set(cache_key, memory_hits, ttl_seconds=2.0)
-        ranked_memory = MemoryEngine.select(memory_hits, prompt, limit=12)
-        if ranked_memory:
-            memory_hits = [hit.entry for hit in ranked_memory]
+        self_reference = NexoCore.is_self_reference(prompt)
+        memory_hits: list[MemoryEntry] = []
+        if not self_reference:
+            cache_key = f"memory:{user_id}:{prompt.lower()[:512]}"
+            cached_memory = self.cache.get(cache_key)
+            memory_hits = cached_memory or []
+            if cached_memory is None:
+                memory_hits = await self.state.search_memory(user_id, prompt, limit=12)
+                self.cache.set(cache_key, memory_hits, ttl_seconds=2.0)
+            ranked_memory = MemoryEngine.select(memory_hits, prompt, limit=12)
+            if ranked_memory:
+                memory_hits = [hit.entry for hit in ranked_memory]
         context: list[str] = []
         if memory_hits:
             context.append("Relevant prior memory:\n" + "\n".join(
