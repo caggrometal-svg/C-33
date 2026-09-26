@@ -470,6 +470,17 @@ jobs:
           if status.status_code != 200:
               raise SystemExit(f"/status failed: {status.status_code} {status.text}")
 
+          base_host = httpx.URL(base).host
+          peer_host = httpx.URL(peer_base).host
+          if not base_host or not peer_host or base_host == peer_host:
+              raise SystemExit(f"invalid replication topology: production={base_host!r} peer={peer_host!r}")
+          peer_health = httpx.get(peer_base + "/health", timeout=8)
+          if peer_health.status_code != 200:
+              raise SystemExit(f"peer health failed: {peer_health.status_code} {peer_health.text}")
+          peer_health_data = peer_health.json()
+          if peer_health_data.get("status") != "alive" or peer_health_data.get("role") != "secondary":
+              raise SystemExit(f"peer is not a live secondary: {json.dumps(peer_health_data)}")
+
           replication = httpx.get(base + "/v1/replication/status", timeout=8)
           if replication.status_code != 200:
               raise SystemExit(f"/v1/replication/status failed: {replication.status_code} {replication.text}")
@@ -478,6 +489,10 @@ jobs:
               raise SystemExit(f"replication is not quiesced: {json.dumps(replication_data)}")
           if replication_data.get("peer_status") != "ONLINE":
               raise SystemExit(f"real replication peer is not online: {json.dumps(replication_data)}")
+          if replication_data.get("peer_host") != peer_host:
+              raise SystemExit(
+                  f"primary reports unexpected peer host: {replication_data.get('peer_host')!r} != {peer_host!r}"
+              )
           if replication_data.get("quiesced") is not True:
               raise SystemExit(f"replication quiescence proof failed: {json.dumps(replication_data)}")
           peer_replication = httpx.get(peer_base + "/v1/replication/status", timeout=8)
@@ -490,6 +505,8 @@ jobs:
                       f"replication integrity mismatch for {key}: "
                       f"primary={replication_data.get(key)!r} peer={peer_data.get(key)!r}"
                   )
+          if peer_data.get("backend_role") != "secondary":
+              raise SystemExit(f"peer role mismatch: {json.dumps(peer_data)}")
           if int(peer_data.get("replication_pending", -1)) != 0:
               raise SystemExit(f"peer has pending replication work: {json.dumps(peer_data)}")
 
