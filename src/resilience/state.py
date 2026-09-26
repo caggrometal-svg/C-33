@@ -483,6 +483,14 @@ class PostgresState:
                 "WHERE synced_at IS NULL"
             )
 
+    async def requeue_all_replication(self) -> None:
+        """Backfill every durable message when the peer integrity proof does not match."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE c33_replication_outbox "
+                "SET synced_at=NULL, attempts=0, next_attempt_at=now(), last_error=NULL"
+            )
+
     async def pending_replication(self, limit: int = 20) -> list[ReplicationMessage]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
