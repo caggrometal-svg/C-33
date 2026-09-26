@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - run: python -m pip install httpx
+      - run: python -m pip install httpx cryptography
 
       - name: Execute real production conversations
         env:
@@ -28,6 +28,8 @@ jobs:
           python - <<'PY'
           import json
           import re
+          import subprocess
+          import sys
           import time
           import uuid
           from pathlib import Path
@@ -36,7 +38,12 @@ jobs:
 
           endpoints = json.loads(Path("infra/c33-endpoints.json").read_text(encoding="utf-8"))
           base = str(endpoints["production"]).rstrip("/")
-          user_id = "github-personality-battery"
+          auth = json.loads(subprocess.check_output(
+              [sys.executable, "scripts/c33_ci_auth.py", base, "github-personality-battery"],
+              text=True,
+          ))
+          auth_headers = {"Authorization": auth["authorization"]}
+          user_id = auth["identity_id"]
 
           cases = [
               {
@@ -161,6 +168,7 @@ jobs:
                               base + "/v1/chat",
                               headers={
                                   "Content-Type": "application/json",
+                                  "Authorization": auth["authorization"],
                                   "X-C33-Allow-Local-Fallback": "false",
                                   "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
                               },
