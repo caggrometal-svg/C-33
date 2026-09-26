@@ -27,7 +27,7 @@ class CircuitState:
 
     async def circuit_failure(self, provider_id: str, cooldown_ms: int = 0, **kwargs):
         # Short test cooldown so recovery can be proven without waiting 30s.
-        self.open_until[provider_id] = time.monotonic() + min(max(cooldown_ms, 0), 150) / 1000
+        self.open_until[provider_id] = time.monotonic() + min(max(cooldown_ms, 0), 1000) / 1000
 
 
 class ScenarioTransport(httpx.AsyncBaseTransport):
@@ -118,7 +118,7 @@ async def test_recovery(cascade: ProviderCascade, state: CircuitState, transport
     second = await complete(cascade, "RECOVERY-HOLD")
     assert second.meta.provider_used == "backup", second
     # After the half-open window, primary is restored and must be selectable again.
-    await asyncio.sleep(0.2)
+    await asyncio.sleep(1.1)
     transport.primary_fail = False
     third = await complete(cascade, "RECOVERY-RESTORED")
     assert third.text == "primary:RECOVERY-RESTORED", third
