@@ -617,18 +617,26 @@ class PostgresState:
                 exc.__class__.__name__,
                 exc,
             )
-            await self.mark_replication_batch_result(
-                [message.message_id for message in messages],
-                ok=False,
-                error=str(exc),
-            )
+            if self.pool is None:
+                for message in messages:
+                    await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
+            else:
+                await self.mark_replication_batch_result(
+                    [message.message_id for message in messages],
+                    ok=False,
+                    error=str(exc),
+                )
             fail_count = len(messages)
             return ok_count, fail_count
 
-        await self.mark_replication_batch_result(
-            [message.message_id for message in messages],
-            ok=True,
-        )
+        if self.pool is None:
+            for message in messages:
+                await self.mark_replication_result(message.message_id, ok=True)
+        else:
+            await self.mark_replication_batch_result(
+                [message.message_id for message in messages],
+                ok=True,
+            )
         ok_count = len(messages)
         return ok_count, fail_count
 
