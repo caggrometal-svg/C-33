@@ -40,7 +40,7 @@ El núcleo puede operar con fallback local determinista cuando la generación re
 
 ## Infraestructura
 
-El código puede desplegarse con Docker y contiene configuración para Railway y Render.
+La topología certificable de C-33 usa **Railway como primario** y un **peer secundario externo en Supabase Edge Functions + PostgreSQL**. La replicación se firma con HMAC, se protege por RLS y se valida mediante conteo, unicidad e integridad criptográfica. Los servicios heredados de Render/IAC33 no forman parte de la ruta operativa de C-33.
 
 ## Regla fundamental
 
