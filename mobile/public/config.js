@@ -1,7 +1,8 @@
 window.C33_CONFIG = Object.freeze({
-  CONFIG_VERSION: "2026-09-26.2",
+  CONFIG_VERSION: "2026-09-26.3",
   BACKEND_URLS: [
     "https://iac33-backup-production.up.railway.app",
+    "https://steady-willow-9954.de.deplexo.com",
   ],
   CHAT_PATH: "/v1/chat",
   HEALTH_PATH: "/health",
