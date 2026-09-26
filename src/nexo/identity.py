@@ -40,11 +40,15 @@ def _b64url_encode(value: bytes) -> str:
 
 
 def _b64url_decode(value: str) -> bytes:
+    normalized = str(value or "").strip().rstrip("=")
     try:
-        padding = "=" * (-len(value) % 4)
-        return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+        padding = "=" * (-len(normalized) % 4)
+        decoded = base64.urlsafe_b64decode((normalized + padding).encode("ascii"))
     except (ValueError, UnicodeEncodeError) as exc:
         raise IdentityAuthError("invalid_base64url") from exc
+    if _b64url_encode(decoded) != normalized:
+        raise IdentityAuthError("invalid_base64url")
+    return decoded
 
 
 def _canonical_public_jwk(public_key: dict[str, Any]) -> dict[str, str]:
