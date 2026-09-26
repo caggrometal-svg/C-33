@@ -1,5 +1,5 @@
 {
-  "production": "https://iac33-fastapi-edge-main-production.up.railway.app",
-  "backup": "https://iac33-backup-production.up.railway.app",
+  "production": "https://iac33-backup-production.up.railway.app",
+  "recovery": "https://iac33-fastapi-edge-main-production.up.railway.app",
   "peer": "https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer-v2"
 }
