@@ -338,10 +338,9 @@ class NexoOrchestrator:
             "consulta",
             "consultar",
         }
-        use_web = bool(re.search(r"https?://\S+", lower)) or explicit_web or any(
-            re.search(rf"(?<!\w){re.escape(marker)}(?!\w)", lower) is not None
-            for marker in web_markers
-        )
+        # NEXO is internet-capable by default. Explicit web markers remain
+        # supported, but ordinary questions also receive live web evidence.
+        use_web = True if not NexoCore.is_self_reference(prompt) else False
         use_memory = bool(memory_hits)
         reason = "web+memory" if use_web and use_memory else "web" if use_web else "memory" if use_memory else "direct"
         return RoutePlan(
