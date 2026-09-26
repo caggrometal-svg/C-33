@@ -12,108 +12,141 @@ jobs:
   replication:
     name: Cross-node replication integrity gate
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v5
+
       - name: Drain and certify replication backlog
-        env:
-          PEER: https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer-v2
         run: |
           python - <<'PY'
-          import json, os, time
+          import json
+          import time
           from urllib.parse import urlparse
           import urllib.request
+
           endpoints = json.load(open("infra/c33-endpoints.json", encoding="utf-8"))
           base = str(endpoints["production"]).rstrip("/")
           peer_base = str(endpoints["peer"]).rstrip("/")
+
           base_host = (urlparse(base).hostname or "").lower()
           peer_host = (urlparse(peer_base).hostname or "").lower()
           if not base_host or not peer_host or base_host == peer_host:
-              raise SystemExit(f"invalid_replication_topology: production={base_host!r} peer={peer_host!r}")
+              raise SystemExit(
+                  f"invalid_replication_topology: production={base_host!r} peer={peer_host!r}"
+              )
+
           def get_json(url, timeout=10, attempts=6, pause=2):
               last_error = None
               for attempt in range(attempts):
                   try:
-                      with urllib.request.urlopen(url, timeout=timeout) as r:
-                          return json.load(r)
+                      with urllib.request.urlopen(url, timeout=timeout) as response:
+                          return json.load(response)
                   except Exception as exc:
                       last_error = exc
                       if attempt + 1 < attempts:
                           time.sleep(pause)
-              raise SystemExit(f"replication_probe_failed:{url}:{last_error}")
+              raise RuntimeError(f"probe_failed:{url}:{last_error}")
 
           peer_health = get_json(peer_base + "/health", timeout=10, attempts=10, pause=2)
           if peer_health.get("status") != "alive" or peer_health.get("role") != "secondary":
-              raise SystemExit("peer_is_not_a_live_secondary:" + json.dumps(peer_health, sort_keys=True))
+              raise SystemExit(
+                  "peer_is_not_a_live_secondary:"
+                  + json.dumps(peer_health, sort_keys=True)
+              )
+
           deadline = time.time() + 180
-last = None
-stable_primary = None
-stable_since = None
-while time.time() < deadline:
-    try:
-        current = get_json(base + "/v1/replication/status", timeout=10, attempts=2, pause=1)
-    except SystemExit as exc:
-        last = {"probe_error": str(exc)}
-        stable_primary = None
-        stable_since = None
-        time.sleep(2)
-        continue
-    last = current
-    print(json.dumps(current, sort_keys=True), flush=True)
-    primary_ready = (
-        int(current.get("replication_pending", -1)) == 0
-        and current.get("peer_status") == "ONLINE"
-        and current.get("quiesced") is True
-        and int(current.get("total_messages", -1)) == int(current.get("unique_message_ids", -2))
-    )
-    fingerprint = tuple(current.get(key) for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest"))
-    if primary_ready:
-        if stable_primary is not None and fingerprint == tuple(stable_primary.get(key) for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest")):
-            if stable_since is None:
-                stable_since = time.time()
-        else:
-            stable_primary = current
-            stable_since = time.time()
-        if stable_since is not None and time.time() - stable_since >= 5:
-            integrity_deadline = time.time() + 60
-            while time.time() < integrity_deadline:
-                try:
-                    with urllib.request.urlopen(peer_base + "/v1/replication/status", timeout=10) as r:
-                        peer = json.load(r)
-                except Exception:
-                    peer = None
-                if peer is not None:
-                    if (
-                        peer.get("backend_role") == "secondary"
-                        and int(peer.get("replication_pending", -1)) == 0
-                        and all(
-                            peer.get(key) == stable_primary.get(key)
-                            for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest")
-                        )
-                    ):
-                        print(json.dumps({
-                            "production_host": base_host,
-                            "peer_host": peer_host,
-                            "peer_role": peer.get("backend_role"),
-                            "replication_pending": peer.get("replication_pending"),
-                            "total_messages": peer.get("total_messages"),
-                            "stable_primary_seconds": round(time.time() - stable_since, 1),
-                        }, sort_keys=True))
-                        print("C33_REPLICATION_INTEGRITY_GREEN")
-                        raise SystemExit(0)
-                time.sleep(2)
-                try:
-                    refreshed = get_json(base + "/v1/replication/status", timeout=10, attempts=2, pause=1)
-                except SystemExit:
-                    refreshed = None
-                if refreshed:
-                    refreshed_fingerprint = tuple(refreshed.get(key) for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest"))
-                    if refreshed_fingerprint != fingerprint:
-                        stable_primary = None
-                        stable_since = None
-                        break
-    else:
-        stable_primary = None
-        stable_since = None
-    time.sleep(2)
-raise SystemExit("replication_gate_timeout:" + json.dumps(last, sort_keys=True))
+          last = None
+          stable_fingerprint = None
+          stable_since = None
+
+          while time.time() < deadline:
+              try:
+                  primary = get_json(base + "/v1/replication/status", timeout=10, attempts=2, pause=1)
+              except Exception as exc:
+                  last = {"probe_error": str(exc)}
+                  stable_fingerprint = None
+                  stable_since = None
+                  time.sleep(2)
+                  continue
+
+              last = primary
+              print(json.dumps(primary, sort_keys=True), flush=True)
+
+              primary_ready = (
+                  int(primary.get("replication_pending", -1)) == 0
+                  and primary.get("peer_status") == "ONLINE"
+                  and primary.get("quiesced") is True
+                  and int(primary.get("total_messages", -1))
+                  == int(primary.get("unique_message_ids", -2))
+              )
+
+              fingerprint = tuple(
+                  primary.get(key)
+                  for key in (
+                      "total_messages",
+                      "unique_message_ids",
+                      "message_id_digest",
+                      "message_digest",
+                  )
+              )
+
+              if not primary_ready:
+                  stable_fingerprint = None
+                  stable_since = None
+                  time.sleep(2)
+                  continue
+
+              if fingerprint != stable_fingerprint:
+                  stable_fingerprint = fingerprint
+                  stable_since = time.time()
+                  time.sleep(2)
+                  continue
+
+              if stable_since is None or time.time() - stable_since < 5:
+                  time.sleep(2)
+                  continue
+
+              try:
+                  peer = get_json(peer_base + "/v1/replication/status", timeout=10, attempts=3, pause=1)
+              except Exception as exc:
+                  last = {"probe_error": str(exc)}
+                  time.sleep(2)
+                  continue
+
+              peer_ready = (
+                  peer.get("backend_role") == "secondary"
+                  and int(peer.get("replication_pending", -1)) == 0
+              )
+              peer_matches = all(
+                  peer.get(key) == primary.get(key)
+                  for key in (
+                      "total_messages",
+                      "unique_message_ids",
+                      "message_id_digest",
+                      "message_digest",
+                  )
+              )
+
+              if peer_ready and peer_matches:
+                  print(
+                      json.dumps(
+                          {
+                              "production_host": base_host,
+                              "peer_host": peer_host,
+                              "peer_role": peer.get("backend_role"),
+                              "replication_pending": peer.get("replication_pending"),
+                              "total_messages": peer.get("total_messages"),
+                              "stable_primary_seconds": round(time.time() - stable_since, 1),
+                          },
+                          sort_keys=True,
+                      )
+                  )
+                  print("C33_REPLICATION_INTEGRITY_GREEN")
+                  raise SystemExit(0)
+
+              time.sleep(2)
+
+          raise SystemExit(
+              "replication_gate_timeout:" + json.dumps(last or {}, sort_keys=True)
+          )
           PY
