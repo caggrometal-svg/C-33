@@ -761,7 +761,7 @@ class PostgresState:
         return accepted
 
     async def replication_integrity(self) -> dict[str, Any]:
-        """Return the same SQL-canonical digest used by the replication peer."""
+        """Return the peer-compatible SQL-canonical digest without DB crypto extensions."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -789,19 +789,17 @@ class PostgresState:
                         COALESCE(string_agg(record_json || E'\\n', '' ORDER BY id::uuid), '') AS message_data
                     FROM ordered
                 )
-                SELECT
-                    total_messages,
-                    unique_message_ids,
-                    encode(extensions.digest(convert_to(id_data, 'UTF8'), 'sha256'), 'hex') AS message_id_digest,
-                    encode(extensions.digest(convert_to(message_data, 'UTF8'), 'sha256'), 'hex') AS message_digest
+                SELECT total_messages, unique_message_ids, id_data, message_data
                 FROM aggregate_data
                 """
             )
+        id_digest = hashlib.sha256(str(row["id_data"]).encode("utf-8")).hexdigest()
+        message_digest = hashlib.sha256(str(row["message_data"]).encode("utf-8")).hexdigest()
         return {
             "total_messages": int(row["total_messages"]),
             "unique_message_ids": int(row["unique_message_ids"]),
-            "message_id_digest": str(row["message_id_digest"]),
-            "message_digest": str(row["message_digest"]),
+            "message_id_digest": id_digest,
+            "message_digest": message_digest,
         }
     async def replication_pending_count(self) -> int:
         async with self.pool.acquire() as conn:
