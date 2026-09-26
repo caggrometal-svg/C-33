@@ -16,11 +16,22 @@ jobs:
       - name: Drain and certify replication backlog
         env:
           BASE: https://iac33-backup-production.up.railway.app
+          PEER: https://iac33-backup-iac33.up.railway.app
         run: |
           python - <<'PY'
           import json, os, time
+          from urllib.parse import urlparse
           import urllib.request
-          base = os.environ["BASE"]
+          base = os.environ["BASE"].rstrip("/")
+          peer_base = os.environ["PEER"].rstrip("/")
+          base_host = (urlparse(base).hostname or "").lower()
+          peer_host = (urlparse(peer_base).hostname or "").lower()
+          if not base_host or not peer_host or base_host == peer_host:
+              raise SystemExit(f"invalid_replication_topology: production={base_host!r} peer={peer_host!r}")
+          with urllib.request.urlopen(peer_base + "/health", timeout=10) as r:
+              peer_health = json.load(r)
+          if peer_health.get("status") != "alive" or peer_health.get("role") != "secondary":
+              raise SystemExit("peer_is_not_a_live_secondary:" + json.dumps(peer_health, sort_keys=True))
           deadline = time.time() + 180
           last = None
           while time.time() < deadline:
@@ -33,13 +44,16 @@ jobs:
                   and last.get("quiesced") is True
                   and int(last.get("total_messages", -1)) == int(last.get("unique_message_ids", -2))
               ):
-                  with urllib.request.urlopen(base + "/v1/replication/status", timeout=10) as r:
+                  with urllib.request.urlopen(peer_base + "/v1/replication/status", timeout=10) as r:
                       peer = json.load(r)
                   for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest"):
                       if peer.get(key) != last.get(key):
                           raise SystemExit("integrity_mismatch:" + key)
+                  if peer.get("backend_role") != "secondary":
+                      raise SystemExit("peer_role_mismatch:" + json.dumps(peer, sort_keys=True))
                   if int(peer.get("replication_pending", -1)) != 0:
                       raise SystemExit("peer_pending_nonzero")
+                  print(json.dumps({"production_host":base_host,"peer_host":peer_host,"peer_role":peer.get("backend_role"),"replication_pending":peer.get("replication_pending"),"total_messages":peer.get("total_messages")}, sort_keys=True))
                   print("C33_REPLICATION_459_TO_0_GREEN")
                   raise SystemExit(0)
               time.sleep(5)
