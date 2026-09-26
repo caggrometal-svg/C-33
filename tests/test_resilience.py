@@ -375,12 +375,15 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_429_preserves_retry_after_on_terminal_failure(self):
         state = FakeState()
-        specs = [ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000)]
+        specs = [
+            ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
+            ProviderSpec("b", "https://b.test/v1", "m-b", None, "b", 1000),
+        ]
         cascade = ProviderCascade(
             state,
             specs,
-            ["a"],
-            transport=FaultTransport({"a.test": "429"}),
+            ["a", "b"],
+            transport=FaultTransport({"a.test": "429", "b.test": "429"}),
         )
         with self.assertRaises(GenerationFailure) as ctx:
             await cascade.complete([{"role": "user", "content": "x"}], DeadlineBudget(5000))
