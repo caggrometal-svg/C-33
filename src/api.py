@@ -504,10 +504,10 @@ async def ready() -> ReadyResponse:
                 logger.info("[NEXO_REPLICATION_RECONCILED] live_integrity_match=true pending=0")
         except Exception as exc:
             logger.debug("[NEXO_REPLICATION_RECONCILE_SKIP] type=%s detail=%s", exc.__class__.__name__, str(exc)[:200])
-    if config.environment == "production" and (pending != 0 or peer != "ONLINE"):
+    if config.environment == "production" and peer != "ONLINE":
         raise HTTPException(
             status_code=503,
-            detail={"status":"not_ready","reason":"replication_not_quiesced","replication_pending":pending,"peer_status":peer},
+            detail={"status":"not_ready","reason":"replication_peer_unavailable","replication_pending":pending,"peer_status":peer},
         )
     if config.environment == "production" and config.peer_url and not config.peer_replication_secret:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"peer_replication_secret_missing"})
