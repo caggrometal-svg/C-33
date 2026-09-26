@@ -72,7 +72,7 @@ class DeadlineBudget:
         # room inside the global 18 s request budget. Production configuration
         # may advertise a higher timeout, but a slow provider must not consume
         # the entire request budget before peers are attempted.
-        per_provider_cap_ms = 9000
+        per_provider_cap_ms = 5000
         return max(250, min(configured_ms, per_provider_cap_ms, self.remaining_ms - reserve_ms))
 
 class ProviderCascade:
@@ -165,16 +165,16 @@ class ProviderCascade:
                 )
         else:
             specs = [
-                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 10000),
                 ProviderSpec(
                     "kilo",
                     "https://api.kilo.ai/api/gateway",
                     "kilo-auto/free",
                     None,
                     "kilo.ai",
-                    9000,
+                    5000,
                 ),
-                ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 9000),
+                ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 5000),
+                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 5000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
@@ -200,7 +200,7 @@ class ProviderCascade:
         order = (
             [x.strip() for x in raw_order.split(",") if x.strip()]
             if raw_order
-            else ["pollinations", "kilo", "vireonix"]
+            else ["kilo", "vireonix", "pollinations"]
         )
         if len(set(order)) != len(order):
             raise ProviderConfigurationError("provider_order_contains_duplicates")
@@ -290,39 +290,180 @@ class ProviderCascade:
         self.assert_ready_configuration()
         if probe:
             return await self._probe_parallel(messages, budget)
+
         attempts: list[dict[str, Any]] = []
         if budget.remaining_ms < 1000:
             raise GenerationFailure("deadline_exhausted_before_provider", http_status=504, attempts=[])
-        for index, spec in enumerate(self._ordered_specs(preferred_provider)):
-            if budget.remaining_ms < 500:
-                break
+
+        ordered_specs = self._ordered_specs(preferred_provider)
+
+        async def run_one(index: int, spec: ProviderSpec) -> tuple[str, int, ProviderSpec, int, str, int, int, str, str]:
+            if budget.remaining_ms < 750:
+                return ("skip", index, spec, 0, "deadline_exhausted_before_provider", 504, 0, "", "")
+
             decision = await self._circuit_decision_with_grace(spec.provider_id, budget)
             if not decision.allowed:
-                attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms})
-                continue
+                return ("skip", index, spec, 0, "circuit_open", 503, decision.cooldown_ms, "", "")
+
             started = time.monotonic()
             timeout_ms = budget.provider_timeout_ms(spec.timeout_ms)
-            logger.info("[NEXO_DEBUG_PROVIDER] complete_attempt provider=%s model=%s timeout_ms=%s remaining_ms=%s probe=%s", spec.provider_id, spec.model, timeout_ms, budget.remaining_ms, probe)
+            logger.info(
+                "[NEXO_DEBUG_PROVIDER] complete_attempt provider=%s model=%s timeout_ms=%s remaining_ms=%s probe=%s",
+                spec.provider_id,
+                spec.model,
+                timeout_ms,
+                budget.remaining_ms,
+                probe,
+            )
             try:
                 text = await self._complete_one(spec, messages, timeout_ms, probe=probe)
-                latency = int((time.monotonic()-started)*1000)
+                latency = int((time.monotonic() - started) * 1000)
                 await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=latency)
-                logger.info("[NEXO_DEBUG_PROVIDER] complete_success provider=%s latency_ms=%s", spec.provider_id, latency)
-                attempts.append({"provider":spec.provider_id,"status":200,"latency_ms":latency})
-                used_fallback = bool(preferred_provider and spec.provider_id != preferred_provider) or (not preferred_provider and index > 0)
-                return GenerationResult(text=text, meta=ProviderMeta(spec.provider_id,spec.model,used_fallback,len(attempts),latency,"success_after_failover" if used_fallback else "success","AI_READY" if not used_fallback else "DEGRADED"))
+                logger.info(
+                    "[NEXO_DEBUG_PROVIDER] complete_success provider=%s latency_ms=%s",
+                    spec.provider_id,
+                    latency,
+                )
+                return ("success", index, spec, latency, "success", 200, 0, "", text)
             except GenerationFailure as exc:
-                latency = int((time.monotonic()-started)*1000)
-                await self.state.circuit_failure(spec.provider_id, reason=exc.reason, status=exc.http_status, model=spec.model, latency_ms=latency, cooldown_ms=self._cooldown_ms(exc))
-                logger.warning("[NEXO_DEBUG_PROVIDER] complete_failure provider=%s reason=%s http_status=%s latency_ms=%s", spec.provider_id, exc.reason, exc.http_status, latency)
-                attempts.append({"provider":spec.provider_id,"status":exc.http_status,"reason":exc.reason,"latency_ms":latency,"retry_after_ms":exc.retry_after_ms})
-                continue
+                latency = int((time.monotonic() - started) * 1000)
+                await self.state.circuit_failure(
+                    spec.provider_id,
+                    reason=exc.reason,
+                    status=exc.http_status,
+                    model=spec.model,
+                    latency_ms=latency,
+                    cooldown_ms=self._cooldown_ms(exc),
+                )
+                logger.warning(
+                    "[NEXO_DEBUG_PROVIDER] complete_failure provider=%s reason=%s http_status=%s latency_ms=%s",
+                    spec.provider_id,
+                    exc.reason,
+                    exc.http_status,
+                    latency,
+                )
+                return (
+                    "failure",
+                    index,
+                    spec,
+                    latency,
+                    exc.reason,
+                    exc.http_status,
+                    exc.retry_after_ms,
+                    "",
+                    "",
+                )
+
+        async def record_result(result: tuple[str, int, ProviderSpec, int, str, int, int, str, str]) -> None:
+            status, index, spec, latency, reason, http_status, retry_after_ms, _, _ = result
+            if status == "skip" and reason == "deadline_exhausted_before_provider":
+                attempts.append({
+                    "provider": spec.provider_id,
+                    "status": http_status,
+                    "reason": reason,
+                    "latency_ms": latency,
+                })
+                return
+            if status == "skip" and reason == "circuit_open":
+                attempts.append({
+                    "provider": spec.provider_id,
+                    "reason": reason,
+                    "cooldown_ms": retry_after_ms,
+                })
+                return
+            if status == "failure":
+                attempts.append({
+                    "provider": spec.provider_id,
+                    "status": http_status,
+                    "reason": reason,
+                    "latency_ms": latency,
+                    "retry_after_ms": retry_after_ms,
+                })
+
+        # The first two independent domains race each other. This prevents one
+        # slow free provider from consuming the whole request budget.
+        first_wave = ordered_specs[:2]
+        if first_wave:
+            tasks = {
+                asyncio.create_task(run_one(index, spec))
+                for index, spec in enumerate(first_wave)
+            }
+            pending = set(tasks)
+            try:
+                while pending:
+                    done, pending = await asyncio.wait(
+                        pending,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    results = [task.result() for task in done]
+                    successes = [result for result in results if result[0] == "success"]
+                    for result in results:
+                        if result[0] != "success":
+                            await record_result(result)
+                    if successes:
+                        winner = min(successes, key=lambda result: result[1])
+                        _, winner_index, spec, latency, _, _, _, _, text = winner
+                        for task in pending:
+                            task.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        used_fallback = bool(preferred_provider and spec.provider_id != preferred_provider) or (
+                            not preferred_provider and winner_index > 0
+                        )
+                        return GenerationResult(
+                            text=text,
+                            meta=ProviderMeta(
+                                spec.provider_id,
+                                spec.model,
+                                used_fallback,
+                                len(attempts) + 1,
+                                latency,
+                                "success_after_failover" if used_fallback else "success",
+                                "AI_READY" if not used_fallback else "DEGRADED",
+                            ),
+                        )
+            finally:
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Final provider gets a clean sequential chance after the independent
+        # first wave is exhausted.
+        for index, spec in enumerate(ordered_specs[2:], start=2):
+            result = await run_one(index, spec)
+            if result[0] == "success":
+                _, winner_index, winner_spec, latency, _, _, _, _, text = result
+                used_fallback = bool(preferred_provider and winner_spec.provider_id != preferred_provider) or (
+                    not preferred_provider and winner_index > 0
+                )
+                return GenerationResult(
+                    text=text,
+                    meta=ProviderMeta(
+                        winner_spec.provider_id,
+                        winner_spec.model,
+                        used_fallback,
+                        len(attempts) + 1,
+                        latency,
+                        "success_after_failover" if used_fallback else "success",
+                        "AI_READY" if not used_fallback else "DEGRADED",
+                    ),
+                )
+            await record_result(result)
+
         final_reason = self._final_reason(attempts)
         if final_reason == "rate_limited":
-            raise GenerationFailure(final_reason,http_status=429,attempts=attempts,retry_after_ms=self._max_retry_after(attempts))
-        if final_reason in {"timeout","deadline_exhausted","dns_failure","tls_failure","connection_reset"}:
-            raise GenerationFailure(final_reason,http_status=504,attempts=attempts)
-        raise GenerationFailure(final_reason,http_status=502,attempts=attempts)
+            raise GenerationFailure(
+                final_reason,
+                http_status=429,
+                attempts=attempts,
+                retry_after_ms=self._max_retry_after(attempts),
+            )
+        if final_reason == "no_provider_available":
+            raise GenerationFailure(final_reason, http_status=503, attempts=attempts)
+        if final_reason in {"timeout", "deadline_exhausted", "dns_failure", "tls_failure", "connection_reset"}:
+            raise GenerationFailure(final_reason, http_status=504, attempts=attempts)
+        raise GenerationFailure(final_reason, http_status=502, attempts=attempts)
 
     async def _probe_parallel(self, messages: list[dict[str, str]], budget: DeadlineBudget) -> GenerationResult:
         """Probe all configured providers concurrently without poisoning runtime circuits."""
