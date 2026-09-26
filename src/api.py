@@ -936,12 +936,24 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     st, b, providers = _require_runtime()
     request_id = payload.request_id.strip() or getattr(request.state, "request_id", "") or uuid.uuid4().hex
     effective_payload = payload.model_copy(update={"request_id":request_id})
-    existing = await st.existing_assistant_for_request(effective_payload.conversation_id, request_id)
+    existing = await st.existing_assistant_for_request(
+        effective_payload.conversation_id,
+        request_id,
+        effective_payload.user_id,
+    )
     if existing:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
         stored_meta.setdefault("request_id", request_id)
         stored_meta.setdefault("conversation_id", effective_payload.conversation_id)
-        return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=[],meta=stored_meta)
+        stored_meta["replayed"] = True
+        return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=list(stored_meta.get("web_searches", [])),meta=stored_meta)
+
+    replay_only = request.headers.get("X-C33-Replay-Only", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if replay_only:
+        raise HTTPException(
+            status_code=409,
+            detail={"reason":"request_not_replayable","request_id":request_id},
+        )
 
     await st.append_message(
         conversation_id=effective_payload.conversation_id,
