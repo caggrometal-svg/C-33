@@ -295,7 +295,6 @@ async def lifespan(_: FastAPI):
                     and int(peer_data.get("total_messages", -1)) == int(startup_integrity.get("total_messages", -2))
                     and int(peer_data.get("unique_message_ids", -1)) == int(startup_integrity.get("unique_message_ids", -2))
                     and str(peer_data.get("message_id_digest", "")) == str(startup_integrity.get("message_id_digest", ""))
-                    and str(peer_data.get("message_digest", "")) == str(startup_integrity.get("message_digest", ""))
                 )
                 if not peer_matches:
                     await state.requeue_all_replication()
