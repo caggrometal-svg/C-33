@@ -77,8 +77,10 @@ function diagnosticReason(value) {
   const urlStripped = raw.replace(/(?:https?:\/\/|www\.)\S+/gi, "[url]");
   const bearerStripped = urlStripped.replace(/bearer\s+[a-z0-9._~-]+/gi, "[credential]");
   const redacted = bearerStripped.replace(/[A-Za-z0-9+/_=-]{24,}/g, "[opaque]");
-  const primary = redacted.split(/[|:]/, 1)[0].trim();
-  return DIAGNOSTIC_REASON_CODES.has(primary) ? primary : "unclassified_error";
+  for (const code of DIAGNOSTIC_REASON_CODES) {
+    if (redacted.includes(code)) return code;
+  }
+  return "unclassified_error";
 }
 
 function diagnosticEndpoint(value) {
