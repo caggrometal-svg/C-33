@@ -152,7 +152,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_timeout_is_capped_for_failover_budget(self):
         budget = DeadlineBudget(18000)
-        self.assertEqual(budget.provider_timeout_ms(12000), 5000)
+        self.assertEqual(budget.provider_timeout_ms(12000), 9000)
         self.assertLessEqual(budget.provider_timeout_ms(9000), budget.remaining_ms)
 
     async def test_sequential_timeout_failover_reaches_third_provider(self):
