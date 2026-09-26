@@ -40,7 +40,7 @@ El núcleo puede operar con fallback local determinista cuando la generación re
 
 ## Infraestructura
 
-La topología certificable de C-33 usa **Railway como primario** y un **peer secundario externo en Supabase Edge Functions + PostgreSQL**. La replicación se firma con HMAC, se protege por RLS y se valida mediante conteo, unicidad e integridad criptográfica. Los servicios heredados de Render/IAC33 no forman parte de la ruta operativa de C-33.
+La topología certificable de C-33 usa **Railway como primario**, **Deplexo como backend de respaldo para el cliente**, y un **peer secundario externo en Supabase Edge Functions + PostgreSQL**. Railway y Deplexo sirven la misma API C-33; el cliente prueba Railway primero y conmuta a Deplexo ante fallos de infraestructura mediante su circuito de failover. La replicación durable se mantiene con el peer de Supabase, firmada con HMAC, protegida por RLS y validada mediante conteo, unicidad e integridad criptográfica. Los servicios heredados de Render/IAC33 no forman parte de la ruta operativa de C-33.
 
 ## Regla fundamental
 
