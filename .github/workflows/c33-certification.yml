@@ -214,10 +214,32 @@ jobs:
           import json, os, time, uuid
           import httpx
 
-          def post_json(path, payload, *, timeout=22, attempts=5):
+          def post_json(path, payload, *, timeout=22, attempts=8, retry_window=90):
+              transient_statuses = {429, 500, 502, 503, 504}
+              retry_deadline = time.time() + retry_window
               last_response = None
               last_error = None
+
+              def server_retry_delay(response):
+                  try:
+                      data = response.json()
+                      detail = data.get("detail", {})
+                      if not isinstance(detail, dict):
+                          return 0.0
+                      delays = []
+                      retry_after_ms = detail.get("retry_after_ms")
+                      if retry_after_ms is not None:
+                          delays.append(float(retry_after_ms) / 1000.0)
+                      for attempt_data in detail.get("attempts", []):
+                          if isinstance(attempt_data, dict) and attempt_data.get("cooldown_ms") is not None:
+                              delays.append(float(attempt_data["cooldown_ms"]) / 1000.0)
+                      return max(delays, default=0.0)
+                  except (ValueError, TypeError, KeyError):
+                      return 0.0
+
               for attempt in range(1, attempts + 1):
+                  if time.time() >= retry_deadline:
+                      break
                   try:
                       response = httpx.post(
                           base + path,
@@ -229,15 +251,24 @@ jobs:
                           timeout=timeout,
                       )
                       last_response = response
-                      if response.status_code not in {429, 500, 502, 503, 504}:
+                      if response.status_code not in transient_statuses:
                           return response
                   except httpx.RequestError as exc:
                       last_error = exc
-                  if attempt < attempts:
-                      time.sleep(min(8, 2 ** (attempt - 1)))
+
+                  if attempt >= attempts:
+                      break
+                  exponential_delay = min(8.0, 2 ** (attempt - 1))
+                  server_delay = server_retry_delay(last_response) if last_response is not None else 0.0
+                  delay = max(1.0, exponential_delay, server_delay + 0.5)
+                  delay = min(delay, max(0.0, retry_deadline - time.time()))
+                  if delay <= 0:
+                      break
+                  time.sleep(delay)
+
               if last_response is not None:
                   return last_response
-              raise SystemExit(f"remote request failed after {attempts} attempts: {last_error}")
+              raise SystemExit(f"remote request failed after {attempts} attempts/{retry_window}s: {last_error}")
 
           endpoints = json.loads(open("infra/c33-endpoints.json", encoding="utf-8").read())
           base = str(endpoints.get("production", "")).strip().rstrip("/")
@@ -532,4 +563,3 @@ jobs:
           echo "C-33 FINAL MATRIX GREEN"
           echo "NEXO 41-60 CLOSURE GREEN"
           echo "NEXO 61-100 CLOSURE GREEN"
-          echo "NEXO 41-60 CLOSURE GREEN"
