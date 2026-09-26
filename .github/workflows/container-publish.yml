@@ -39,3 +39,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: ghcr.io/caggrometal-svg/c33-backend:latest
+          build-args: |
+            C33_BUILD_SHA=${{ github.sha }}
