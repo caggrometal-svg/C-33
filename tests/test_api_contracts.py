@@ -2,7 +2,7 @@ import os
 import unittest
 
 os.environ.setdefault("PORT", "8080")
-os.environ.setdefault("SECRET_KEYS", "test-secret")
+os.environ.setdefault("SECRET_KEYS", "test-secret-key-123456")
 
 
 class ExportQueryContractTests(unittest.TestCase):
