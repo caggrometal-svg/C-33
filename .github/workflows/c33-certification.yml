@@ -498,10 +498,16 @@ jobs:
           if peer_health_data.get("status") != "alive" or peer_health_data.get("role") != "secondary":
               raise SystemExit(f"peer is not a live secondary: {json.dumps(peer_health_data)}")
 
-          replication = httpx.get(base + "/v1/replication/status", timeout=8)
-          if replication.status_code != 200:
-              raise SystemExit(f"/v1/replication/status failed: {replication.status_code} {replication.text}")
-          replication_data = replication.json()
+          replication_deadline = time.time() + 45
+          replication_data = {}
+          while time.time() < replication_deadline:
+              replication = httpx.get(base + "/v1/replication/status", timeout=8)
+              if replication.status_code != 200:
+                  raise SystemExit(f"/v1/replication/status failed: {replication.status_code} {replication.text}")
+              replication_data = replication.json()
+              if int(replication_data.get("replication_pending", -1)) == 0:
+                  break
+              time.sleep(3)
           if int(replication_data.get("replication_pending", -1)) != 0:
               raise SystemExit(f"replication is not quiesced: {json.dumps(replication_data)}")
           if replication_data.get("peer_status") != "ONLINE":
