@@ -658,7 +658,23 @@ class ProviderCascade:
             if budget.remaining_ms<1000: break
             decision=await self._circuit_decision_with_grace(spec.provider_id, budget)
             if not decision.allowed:
-                attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms}); continue
+                # A persisted OPEN circuit can outlive the provider itself. Before
+                # declaring all remote providers exhausted, perform a bounded live
+                # probe and immediately close the circuit when the provider answers.
+                # This preserves failover while allowing recovery without waiting
+                # for a stale cooldown window.
+                if budget.remaining_ms >= 2500:
+                    try:
+                        probe_timeout = min(2000, budget.provider_timeout_ms(spec.timeout_ms, reserve_ms=500))
+                        await self._complete_one(spec, messages, probe_timeout, probe=True)
+                        await self.state.circuit_success(spec.provider_id, model=spec.model, latency_ms=0)
+                        decision = type(decision)(True, "HALF_OPEN", 0)
+                        logger.info("[NEXO_DEBUG_PROVIDER] circuit_recovered provider=%s", spec.provider_id)
+                    except GenerationFailure as exc:
+                        attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms,"probe_reason":exc.reason})
+                        continue
+                else:
+                    attempts.append({"provider":spec.provider_id,"reason":"circuit_open","cooldown_ms":decision.cooldown_ms}); continue
             timeout_ms=budget.provider_timeout_ms(spec.timeout_ms); started=time.monotonic(); got_token=False
             logger.info("[NEXO_DEBUG_PROVIDER] stream_attempt provider=%s model=%s timeout_ms=%s remaining_ms=%s", spec.provider_id, spec.model, timeout_ms, budget.remaining_ms)
             headers={"Content-Type":"application/json","Accept":"text/event-stream"}
