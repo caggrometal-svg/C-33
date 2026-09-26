@@ -74,6 +74,7 @@ async def test_all_providers_down() -> None:
 async def test_rate_limit() -> None:
     import os
     os.environ.setdefault("PORT", "8080")
+    os.environ.setdefault("SECRET_KEYS", '["c33-test-secret-0123456789"]')
     import api
 
     api._rate_limit_buckets.clear()
