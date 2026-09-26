@@ -16,7 +16,7 @@ jobs:
       - name: Drain and certify replication backlog
         env:
           BASE: https://iac33-backup-production.up.railway.app
-          PEER: https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer
+          PEER: https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer-v2
         run: |
           python - <<'PY'
           import json, os, time
