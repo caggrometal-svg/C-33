@@ -46,6 +46,6 @@ export default {fetch:withSupabase({auth:"none"},async(req,ctx)=>{
     if(old&&JSON.stringify(canonical(old))!==JSON.stringify(canonical(item)))return response({detail:"message_id_conflict:"+item.id},409);
   }
   const missing=normalized.filter(m=>!byId.has(m.id));
-  if(missing.length){const {error:insertError}=await db.from(TABLE).insert(missing);if(insertError)return response({detail:"replication_insert_failed:"+insertError.message},502);}
+  if(missing.length){const {error:insertError}=await db.from(TABLE).upsert(missing,{onConflict:"id",ignoreDuplicates:true});if(insertError)return response({detail:"replication_upsert_failed:"+insertError.message},502);}
   return response({status:"ok",accepted:normalized.length,received:normalized.length,accepted_ids:ids,receipt_sha256:await sha256(raw)});
 })};
