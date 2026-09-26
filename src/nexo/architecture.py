@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from nexo.tool_policy import ToolCapability, ToolPolicy
+from agent.nexo import NexoCore
 
 Handler = Callable[..., Any]
 
@@ -296,6 +297,13 @@ class NexoOrchestrator:
 
     def plan(self, prompt: str, memory_hits: list[Any]) -> RoutePlan:
         lower = prompt.lower().strip()
+        if NexoCore.is_self_reference(prompt):
+            return RoutePlan(
+                use_memory=False,
+                use_web=False,
+                verify=False,
+                reason="self-reference",
+            )
         explicit_web = (
             lower.startswith("/web ")
             or lower.startswith("web:")
