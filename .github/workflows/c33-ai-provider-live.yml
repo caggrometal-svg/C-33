@@ -48,22 +48,24 @@ jobs:
               async def circuit_failure(self, **kwargs):
                   return None
 
-          def transport(request):
-              if request.url.host == "primary.test":
-                  return httpx.Response(503, request=request, json={"error": "forced_failover_test"})
-              return httpx.Response(
-                  200,
-                  request=request,
-                  json={
-                      "choices": [
-                          {
-                              "message": {
-                                  "content": "C33_FAILOVER_OK"
+          class Transport(httpx.AsyncBaseTransport):
+              async def handle_async_request(self, request):
+                  if request.url.host == "primary.test":
+                      await asyncio.sleep(2.5)
+                      return httpx.Response(503, request=request, json={"error": "forced_timeout_failover_test"})
+                  return httpx.Response(
+                      200,
+                      request=request,
+                      json={
+                          "choices": [
+                              {
+                                  "message": {
+                                      "content": "C33_FAILOVER_OK"
+                                  }
                               }
-                          }
-                      ]
-                  },
-              )
+                          ]
+                      },
+                  )
 
           specs = [
               ProviderSpec("primary", "https://primary.test/v1", "free-primary", None, "domain-a", 5000),
@@ -74,8 +76,9 @@ jobs:
               FakeState(),
               specs,
               ["primary", "backup", "last-resort"],
-              transport=httpx.MockTransport(transport),
+              transport=Transport(),
           )
+          assert DeadlineBudget(15_000).provider_timeout_ms(9_000) == 5_000
           result = asyncio.run(
               cascade.complete(
                   [{"role": "user", "content": "Reply exactly C33_FAILOVER_OK"}],
