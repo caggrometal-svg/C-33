@@ -214,6 +214,31 @@ jobs:
           import json, os, time, uuid
           import httpx
 
+          def post_json(path, payload, *, timeout=22, attempts=5):
+              last_response = None
+              last_error = None
+              for attempt in range(1, attempts + 1):
+                  try:
+                      response = httpx.post(
+                          base + path,
+                          json=payload,
+                          headers={
+                              "X-C33-Allow-Local-Fallback": "false",
+                              "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+                          },
+                          timeout=timeout,
+                      )
+                      last_response = response
+                      if response.status_code not in {429, 500, 502, 503, 504}:
+                          return response
+                  except httpx.RequestError as exc:
+                      last_error = exc
+                  if attempt < attempts:
+                      time.sleep(min(8, 2 ** (attempt - 1)))
+              if last_response is not None:
+                  return last_response
+              raise SystemExit(f"remote request failed after {attempts} attempts: {last_error}")
+
           endpoints = json.loads(open("infra/c33-endpoints.json", encoding="utf-8").read())
           base = str(endpoints.get("production", "")).strip().rstrip("/")
           peer_base = str(endpoints.get("peer", "")).strip().rstrip("/")
@@ -249,15 +274,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          chat = httpx.post(
-              base + "/v1/chat",
-              json=payload,
-              headers={
-                  "X-C33-Allow-Local-Fallback": "false",
-                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
-              },
-              timeout=22,
-          )
+          chat = post_json("/v1/chat", payload)
           if chat.status_code != 200:
               raise SystemExit(f"remote chat failed: {chat.status_code} {chat.text}")
           chat_data = chat.json()
@@ -274,15 +291,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          web_chat = httpx.post(
-              base + "/v1/chat",
-              json=web_payload,
-              headers={
-                  "X-C33-Allow-Local-Fallback": "false",
-                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
-              },
-              timeout=22,
-          )
+          web_chat = post_json("/v1/chat", web_payload)
           if web_chat.status_code != 200:
               raise SystemExit(f"web-enabled chat failed: {web_chat.status_code} {web_chat.text}")
           web_data = web_chat.json()
@@ -309,15 +318,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          second = httpx.post(
-              base + "/v1/chat",
-              json=second_payload,
-              headers={
-                  "X-C33-Allow-Local-Fallback": "false",
-                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
-              },
-              timeout=22,
-          )
+          second = post_json("/v1/chat", second_payload)
           if second.status_code != 200:
               raise SystemExit(f"second remote chat failed: {second.status_code} {second.text}")
           second_data = second.json()
@@ -341,12 +342,18 @@ jobs:
 
           imported_user = "github-import-" + uuid.uuid4().hex[:12]
           imported_conversation = "import-" + uuid.uuid4().hex
+          conversation_map = {}
           migrated_messages = []
           for message in bundle.get("messages", []):
               copy = dict(message)
+              source_conversation = str(copy.get("conversation_id") or "default")
+              target_conversation = conversation_map.setdefault(
+                  source_conversation,
+                  imported_conversation + "-" + uuid.uuid5(uuid.NAMESPACE_URL, source_conversation).hex[:12],
+              )
               copy["id"] = str(uuid.uuid4())
               copy["user_id"] = imported_user
-              copy["conversation_id"] = imported_conversation
+              copy["conversation_id"] = target_conversation
               migrated_messages.append(copy)
           migrated_bundle = dict(bundle)
           migrated_bundle["user_id"] = imported_user
