@@ -502,7 +502,7 @@ class PostgresState:
                 "SELECT m.id,m.conversation_id,m.user_id,m.seq,m.role,m.content,m.metadata,m.request_id,m.created_at "
                 "FROM c33_replication_outbox o JOIN c33_messages m ON m.id=o.message_id "
                 "WHERE o.synced_at IS NULL AND o.next_attempt_at<=now() ORDER BY m.created_at LIMIT $1",
-                max(1, min(limit, 100)),
+                max(1, min(limit, 250)),
             )
         return [self._row_to_message(r) for r in rows]
 
