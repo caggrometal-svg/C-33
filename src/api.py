@@ -256,7 +256,7 @@ async def _replication_loop() -> None:
     while True:
         try:
             if config.peer_url and config.peer_replication_secret:
-                await state.replicate_batch(config.peer_url, config.peer_replication_secret, limit=25, timeout_ms=12000)
+                await state.replicate_batch(config.peer_url, config.peer_replication_secret, limit=100, timeout_ms=30000)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -284,6 +284,36 @@ async def lifespan(_: FastAPI):
             await state.requeue_pending_replication()
         startup_pending = await state.replication_pending_count()
         startup_integrity = await state.replication_integrity()
+        if config.role != "secondary" and config.peer_url and config.peer_replication_secret:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=httpx.Timeout(4, connect=1.0)) as client:
+                    peer_response = await client.get(config.peer_url.rstrip("/") + "/v1/replication/status", headers={"Cache-Control":"no-cache"})
+                peer_data = peer_response.json() if peer_response.status_code == 200 else {}
+                peer_matches = (
+                    peer_response.status_code == 200
+                    and int(peer_data.get("total_messages", -1)) == int(startup_integrity.get("total_messages", -2))
+                    and int(peer_data.get("unique_message_ids", -1)) == int(startup_integrity.get("unique_message_ids", -2))
+                    and str(peer_data.get("message_id_digest", "")) == str(startup_integrity.get("message_id_digest", ""))
+                    and str(peer_data.get("message_digest", "")) == str(startup_integrity.get("message_digest", ""))
+                )
+                if not peer_matches:
+                    await state.requeue_all_replication()
+                    startup_pending = await state.replication_pending_count()
+                    print(
+                        "[NEXO_REPLICATION_BACKFILL] peer_mismatch=true pending=%s peer_total=%s local_total=%s",
+                        startup_pending,
+                        peer_data.get("total_messages", -1),
+                        startup_integrity.get("total_messages", -1),
+                        flush=True,
+                    )
+            except Exception as exc:
+                print(
+                    "[NEXO_REPLICATION_BACKFILL] probe_failed type=%s detail=%s",
+                    exc.__class__.__name__,
+                    str(exc)[:300],
+                    flush=True,
+                )
         print(
             "[NEXO_REPLICATION_START] pending=%s total=%s unique=%s peer_changed=%s",
             startup_pending,
