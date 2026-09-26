@@ -421,7 +421,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          second = post_json("/v1/chat", second_payload)
+          second = post_json("/v1/chat", second_payload, auth_headers=auth_headers)
           if second.status_code != 200:
               raise SystemExit(f"second remote chat failed: {second.status_code} {second.text}")
           second_data = second.json()
@@ -435,7 +435,7 @@ jobs:
               "preferences": {"font_size": "medium", "voice_tone": "neutral"},
               "configuration": {"backend_urls": [base]},
           }
-          exported = httpx.post(base + "/v1/export", json=export_request, timeout=12)
+          exported = httpx.post(base + "/v1/export", json=export_request, headers=auth_headers, timeout=12)
           if exported.status_code != 200:
               raise SystemExit(f"export failed: {exported.status_code} {exported.text}")
           export_data = exported.json()
@@ -443,7 +443,7 @@ jobs:
           if not bundle.get("sha256") or bundle.get("user_id") != payload["user_id"]:
               raise SystemExit(f"invalid export bundle: {json.dumps(export_data)}")
 
-          imported_user = "github-import-" + uuid.uuid4().hex[:12]
+          imported_user = auth_identity
           imported_conversation = "import-" + uuid.uuid4().hex
           conversation_map = {}
           migrated_messages = []
@@ -471,7 +471,7 @@ jobs:
           import hashlib
           migrated_bundle["sha256"] = hashlib.sha256(raw_digest).hexdigest()
 
-          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": True}, timeout=12)
+          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": True}, headers=auth_headers, timeout=12)
           if imported.status_code != 200:
               raise SystemExit(f"import failed: {imported.status_code} {imported.text}")
           import_data = imported.json()
