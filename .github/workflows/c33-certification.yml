@@ -207,14 +207,14 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install httpx
+      - run: python -m pip install httpx cryptography
       - name: Live certification
         run: |
           python - <<'PY'
           import json, os, time, uuid
           import httpx
 
-          def post_json(path, payload, *, timeout=22, attempts=8, retry_window=90):
+          def post_json(path, payload, *, timeout=22, attempts=8, retry_window=90, auth_headers=None):
               transient_statuses = {429, 500, 502, 503, 504}
               retry_deadline = time.time() + retry_window
               last_response = None
@@ -247,6 +247,7 @@ jobs:
                           headers={
                               "X-C33-Allow-Local-Fallback": "false",
                               "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+                              **(auth_headers or {}),
                           },
                           timeout=timeout,
                       )
@@ -320,6 +321,49 @@ jobs:
                   raise SystemExit(f"/ready failed after startup convergence window: {last_ready.status_code} {last_ready.text}")
               raise SystemExit("/ready failed: no response after startup convergence window")
 
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.asymmetric import ec
+          from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+          def b64url(data):
+              return __import__("base64").urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+          auth_key = ec.generate_private_key(ec.SECP256R1())
+          public_numbers = auth_key.public_key().public_numbers()
+          public_jwk = {
+              "kty": "EC",
+              "crv": "P-256",
+              "x": b64url(public_numbers.x.to_bytes(32, "big")),
+              "y": b64url(public_numbers.y.to_bytes(32, "big")),
+          }
+          auth_challenge = httpx.post(base + "/v1/auth/challenge", timeout=8)
+          if auth_challenge.status_code != 200:
+              raise SystemExit(f"auth challenge failed: {auth_challenge.status_code} {auth_challenge.text}")
+          challenge = auth_challenge.json().get("challenge", "")
+          if not challenge:
+              raise SystemExit("auth challenge missing")
+          der = auth_key.sign(challenge.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+          r_sig, s_sig = decode_dss_signature(der)
+          raw_sig = r_sig.to_bytes(32, "big") + s_sig.to_bytes(32, "big")
+          auth_session = httpx.post(
+              base + "/v1/auth/session",
+              json={
+                  "challenge": challenge,
+                  "device_id": "github-certification",
+                  "public_key": public_jwk,
+                  "signature": b64url(raw_sig),
+              },
+              timeout=10,
+          )
+          if auth_session.status_code != 200:
+              raise SystemExit(f"auth session failed: {auth_session.status_code} {auth_session.text}")
+          auth_token = str(auth_session.json().get("session_token", "")).strip()
+          auth_identity = str(auth_session.json().get("identity_id", "")).strip()
+          if not auth_token or not auth_identity:
+              raise SystemExit("auth session returned incomplete identity")
+          auth_headers = {"Authorization": "Bearer " + auth_token}
+          print("AUTH_IDENTITY:", auth_identity)
+
           payload = {
               "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
               "user_id": "github-certification",
@@ -327,7 +371,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          chat = post_json("/v1/chat", payload)
+          chat = post_json("/v1/chat", payload, auth_headers=auth_headers)
           if chat.status_code != 200:
               raise SystemExit(f"remote chat failed: {chat.status_code} {chat.text}")
           chat_data = chat.json()
@@ -344,7 +388,7 @@ jobs:
               "request_id": uuid.uuid4().hex,
               "stream": False,
           }
-          web_chat = post_json("/v1/chat", web_payload)
+          web_chat = post_json("/v1/chat", web_payload, auth_headers=auth_headers)
           if web_chat.status_code != 200:
               raise SystemExit(f"web-enabled chat failed: {web_chat.status_code} {web_chat.text}")
           web_data = web_chat.json()
@@ -471,6 +515,7 @@ jobs:
               headers={
                   "Accept": "text/event-stream",
                   "X-C33-Allow-Local-Fallback": "false",
+                  **auth_headers,
                   "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
               },
               timeout=22,
