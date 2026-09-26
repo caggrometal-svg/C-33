@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 from nexo.identity import (
     IdentityAuthError,
+    assert_bundle_belongs_to_identity,
     assert_identity_matches,
     identity_id_from_public_key,
     issue_challenge,
@@ -88,6 +89,23 @@ class IdentityAuthTests(unittest.TestCase):
         assert_identity_matches(session, self.identity_a)
         with self.assertRaisesRegex(IdentityAuthError, "identity_mismatch"):
             assert_identity_matches(session, self.identity_b)
+
+    def test_cross_identity_import_is_rejected(self):
+        token, _ = issue_session(
+            self.SECRET,
+            identity_id=self.identity_a,
+            device_id="device-a",
+        )
+        session = verify_session(token, self.SECRET)
+        bundle = {
+            "user_id": self.identity_a,
+            "identity_id": self.identity_a,
+            "messages": [
+                {"user_id": self.identity_b, "content": "private B data"}
+            ],
+        }
+        with self.assertRaisesRegex(IdentityAuthError, "cross_identity_import"):
+            assert_bundle_belongs_to_identity(session, bundle)
 
     def test_tampered_session_is_rejected(self):
         token, _ = issue_session(
