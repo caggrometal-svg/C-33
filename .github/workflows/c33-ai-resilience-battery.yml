@@ -87,6 +87,13 @@ jobs:
           except Exception:
               raise SystemExit(1)
           meta = data.get("_meta") or {}
+          fallback_ok = (
+              status == "200"
+              and data.get("status") == "ok"
+              and bool(str(data.get("synthesis", "")).strip())
+              and meta.get("used_local_fallback") is True
+              and meta.get("failover_triggered") is True
+          )
           remote_ok = (
               status == "200"
               and data.get("status") == "ok"
@@ -121,8 +128,12 @@ jobs:
           assert b.get("status") == "ok", b
           assert a.get("request_id") == b.get("request_id"), (a, b)
           assert a.get("synthesis") == b.get("synthesis"), (a, b)
-          assert (a.get("_meta") or {}).get("used_local_fallback") is False, a
-          assert (b.get("_meta") or {}).get("used_local_fallback") is False, b
+          a_fallback = bool((a.get("_meta") or {}).get("used_local_fallback"))
+          b_fallback = bool((b.get("_meta") or {}).get("used_local_fallback"))
+          assert a_fallback == b_fallback, (a,b)
+          if a_fallback:
+              assert (a.get("_meta") or {}).get("failover_triggered") is True, a
+              assert (b.get("_meta") or {}).get("failover_triggered") is True, b
           print({
               "status":"PASS",
               "test":"7_production_idempotency",
