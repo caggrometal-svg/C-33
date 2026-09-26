@@ -101,6 +101,13 @@ def _bool(name: str, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}: return False
     raise ConfigurationError(f"{name} must be boolean")
 
+def _hostname(value: str) -> str | None:
+    candidate = value.strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate if "://" in candidate else "https://" + candidate)
+    return (parsed.hostname or "").lower() or None
+
 def load_infrastructure_config(dotenv_path: str | None = ".env") -> InfrastructureConfig:
     if dotenv_path:
         load_dotenv(dotenv_path=dotenv_path, override=False)
@@ -117,6 +124,17 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
     local_fallback_default = environment != "production"
     if model_base_url and urlparse(model_base_url).hostname not in {"vireonix.ai", "api.kilo.ai"}:
         raise ConfigurationError("MODEL_BASE_URL must point to an approved zero-cost provider")
+    peer_url = os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None
+    if environment == "production" and peer_url:
+        peer_host = _hostname(peer_url)
+        own_hosts = {
+            _hostname(os.getenv("PUBLIC_BASE_URL", "")),
+            _hostname(os.getenv("IAC33_PUBLIC_BASE_URL", "")),
+            _hostname(os.getenv("RAILWAY_PUBLIC_DOMAIN", "")),
+        }
+        own_hosts.discard(None)
+        if peer_host and peer_host in own_hosts:
+            raise ConfigurationError("PEER_BACKEND_URL must target a distinct backend")
     return InfrastructureConfig(
         port=_required_port(),
         database_url=_optional_database_url(),
@@ -130,7 +148,6 @@ def load_infrastructure_config(dotenv_path: str | None = ".env") -> Infrastructu
         backend_total_timeout_ms=_positive_int("BACKEND_TOTAL_TIMEOUT_MS", 21000, 1000),
         client_timeout_ms=_positive_int("CLIENT_TIMEOUT_MS", 22000, 1000),
         network_timeout_seconds=_positive_float("NETWORK_TIMEOUT_SECONDS", 8.0),
-        # Never infer a peer from legacy or self-hosted URLs; replication is opt-in via explicit configuration.
         peer_url=os.getenv("PEER_BACKEND_URL", "").strip().rstrip("/") or None,
         peer_replication_secret=os.getenv("PEER_REPLICATION_SECRET", "").strip() or None,
         local_fallback_enabled=_bool("LOCAL_FALLBACK_ENABLED", local_fallback_default),
