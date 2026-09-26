@@ -104,11 +104,25 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('used_local_fallback: true', app)
         self.assertIn('transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible")', app)
 
-    def test_stream_does_not_fail_over_after_partial_tokens(self):
+    def test_stream_interrupt_recovers_by_request_id_railway_then_deplexo(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
-        self.assertIn('if (receivedToken) {', app)
-        self.assertIn('throw new Error("NEXO stream interrumpido: " + reason);', app)
-        self.assertIn('if (Date.now() < deadlineAt && index < BACKEND_URLS.length - 1)', app)
+        self.assertIn("async function recoverInterruptedStream(", app)
+        self.assertIn('"X-C33-Replay-Only": "true"', app)
+        self.assertIn('"X-C33-Recovery": "sse-request-id"', app)
+        self.assertIn('sequence: "Railway -> Deplexo"', app)
+        self.assertIn('recordDiagnostic("stream-replay-railway"', app)
+        self.assertIn('recordDiagnostic("stream-replay-deplexo"', app)
+        self.assertIn("replayed: Boolean(data?._meta?.replayed)", app)
+        self.assertIn("recovery_request_id_mismatch", app)
+        self.assertIn('replayHeaders', app)
+        self.assertIn('requestPayload?.request_id', app)
+
+    def test_stream_interrupt_uses_same_request_id_for_http_recovery(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("body: payload", app)
+        self.assertIn("const payload = JSON.stringify({ ...requestPayload, stream: false });", app)
+        self.assertIn("const requestId = String(requestPayload?.request_id || \"\").trim();", app)
+        self.assertIn('request_id: requestId', app)
 
     def test_frontend_consumes_structured_sse_error_events(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
