@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "mobile/**"
+      - "src/**"
+      - "tests/**"
       - ".github/workflows/build-apk.yml"
   pull_request:
     branches: [main]
