@@ -11,29 +11,6 @@ const hmac256=async(secret,bytes)=>{
 };
 const equalConst=(a,b)=>{if(!a||!b||a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0};
 const response=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
-const PAGE_SIZE=500;
-const integrity=async(db)=>{
-  const ids=[], msgs=[];
-  let total=0;
-  const seenIds=new Set();
-  for(let offset=0;;offset+=PAGE_SIZE){
-    const {data,error}=await db.from(TABLE).select("id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at").order("id",{ascending:true}).range(offset,offset+PAGE_SIZE-1);
-    if(error)throw new Error("integrity_query_failed:"+error.message);
-    const rows=data??[];
-    for(const row of rows){
-      const id=String(row.id);
-      if(seenIds.has(id))throw new Error("integrity_duplicate_id:"+id);
-      seenIds.add(id);
-      ids.push(encoder.encode(id),encoder.encode("\n"));
-      const record={id,conversation_id:String(row.conversation_id),user_id:String(row.user_id),seq:Number(row.seq),role:String(row.role),content:String(row.content),metadata:row.metadata&&typeof row.metadata==="object"?row.metadata:{},request_id:row.request_id==null?null:String(row.request_id),created_at:String(row.created_at)};
-      msgs.push(encoder.encode(JSON.stringify(canonical(record))),encoder.encode("\n"));
-      total++;
-    }
-    if(rows.length<PAGE_SIZE)break;
-  }
-  const join=(parts)=>{const n=parts.reduce((a,p)=>a+p.length,0),o=new Uint8Array(n);let i=0;for(const p of parts){o.set(p,i);i+=p.length}return o};
-  return {total_messages:total,unique_message_ids:seenIds.size,message_id_digest:await sha256(join(ids)),message_digest:await sha256(join(msgs))};
-};
 export default {fetch:withSupabase({auth:"none"},async(req,ctx)=>{
   const path=new URL(req.url).pathname, db=ctx.supabaseAdmin.schema(SCHEMA);
   if(req.method==="GET"&&path.endsWith("/health"))return response({status:"alive",service:"C-33",deployment_sha:Deno.env.get("SB_EXECUTION_ID")??"supabase-peer",role:"secondary"});
@@ -42,7 +19,11 @@ export default {fetch:withSupabase({auth:"none"},async(req,ctx)=>{
     if(error||!data?.value)return response({status:"not_ready",service:"C-33",database:"error"},503);
     return response({status:"ready",service:"C-33",deployment_sha:Deno.env.get("SB_EXECUTION_ID")??"supabase-peer",database:"ok",peer_configured:false,provider_count:0});
   }
-  if(req.method==="GET"&&path.endsWith("/replication/status"))return response({status:"ok",service:"C-33",deployment_sha:Deno.env.get("SB_EXECUTION_ID")??"supabase-peer",backend_role:"secondary",peer_url_configured:false,peer_status:"NOT_CONFIGURED",replication_pending:0,...(await integrity(db)),quiesced:true});
+  if(req.method==="GET"&&path.endsWith("/replication/status")){
+    const {data,error}=await ctx.supabaseAdmin.rpc("c33_peer_integrity");
+    if(error||!data)return response({status:"error",service:"C-33",detail:"integrity_unavailable"},500);
+    return response({status:"ok",service:"C-33",deployment_sha:Deno.env.get("SB_EXECUTION_ID")??"supabase-peer",backend_role:"secondary",peer_url_configured:false,peer_status:"NOT_CONFIGURED",replication_pending:0,...data,quiesced:true});
+  }
   if(req.method!=="POST"||!path.endsWith("/internal/replicate"))return response({detail:"not_found"},404);
   if(req.headers.get("x-c33-replication-version")!=="1")return response({detail:"unsupported_replication_version"},400);
   const raw=new Uint8Array(await req.arrayBuffer());
