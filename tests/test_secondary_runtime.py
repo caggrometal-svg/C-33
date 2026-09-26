@@ -1,5 +1,6 @@
 import os
 import sys
+from dataclasses import replace
 import unittest
 from unittest.mock import patch
 
@@ -35,7 +36,7 @@ class SecondaryRuntimeTests(unittest.IsolatedAsyncioTestCase):
         import api
 
         fake = FakeSecondaryState()
-        with patch.object(api.config, "role", "secondary"), patch.object(api, "state", fake), patch.object(api, "cascade", None):
+        with patch.object(api, "config", replace(api.config, role="secondary")), patch.object(api, "state", fake), patch.object(api, "cascade", None):
             response = await ready()
 
         self.assertEqual(response.status, "ready")
@@ -47,7 +48,7 @@ class SecondaryRuntimeTests(unittest.IsolatedAsyncioTestCase):
         import api
 
         fake = FakeSecondaryState()
-        with patch.object(api.config, "role", "secondary"), patch.object(api, "state", fake):
+        with patch.object(api, "config", replace(api.config, role="secondary")), patch.object(api, "state", fake):
             response = await replication_status()
 
         self.assertEqual(response["backend_role"], "secondary")
