@@ -30,6 +30,7 @@ from nexo.observability import RequestMetrics, normalize_request_id
 from nexo.evidence import grade_evidence
 from nexo.identity import (
     IdentityAuthError,
+    assert_bundle_belongs_to_identity,
     assert_identity_matches,
     identity_id_from_public_key,
     issue_challenge,
@@ -715,6 +716,7 @@ async def import_user_data(payload: ImportRequest, request: Request) -> dict[str
     bundle_user_id = str(payload.bundle.get("user_id", "")).strip()
     try:
         assert_identity_matches(session, bundle_user_id)
+        assert_bundle_belongs_to_identity(session, payload.bundle)
     except IdentityAuthError as exc:
         raise HTTPException(status_code=403, detail={"reason": str(exc)}) from exc
     messages = payload.bundle.get("messages", [])
