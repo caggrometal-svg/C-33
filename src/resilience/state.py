@@ -519,7 +519,7 @@ class PostgresState:
         await self.mark_replication_batch_result([message_id], ok=ok, error=error)
 
     async def mark_replication_batch_result(self, message_ids: list[str], *, ok: bool, error: str = "") -> None:
-        if not message_ids:
+        if not message_ids or self.pool is None:
             return
         ids = [uuid.UUID(message_id) for message_id in message_ids]
         async with self.pool.acquire() as conn:
