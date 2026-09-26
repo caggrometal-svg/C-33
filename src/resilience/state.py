@@ -487,6 +487,11 @@ class PostgresState:
         """Backfill every durable message when the peer integrity proof does not match."""
         async with self.pool.acquire() as conn:
             await conn.execute(
+                "INSERT INTO c33_replication_outbox(message_id) "
+                "SELECT id FROM c33_messages "
+                "ON CONFLICT(message_id) DO NOTHING"
+            )
+            await conn.execute(
                 "UPDATE c33_replication_outbox "
                 "SET synced_at=NULL, attempts=0, next_attempt_at=now(), last_error=NULL"
             )
