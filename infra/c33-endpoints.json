@@ -1,4 +1,4 @@
 {
   "production": "https://iac33-backup-production.up.railway.app",
-  "peer": "https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer"
+  "peer": "https://guqevsjbjyapqjjtutza.supabase.co/functions/v1/c33-peer-v2"
 }
