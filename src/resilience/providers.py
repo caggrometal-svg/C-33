@@ -163,7 +163,7 @@ class ProviderCascade:
                         model,
                         None,
                         str(item.get("failure_domain", host)).strip() or host,
-                        min(5000, max(500, int(item.get("timeout_ms", 5000)))),
+                        min(9000, max(500, int(item.get("timeout_ms", 9000)))),
                         capabilities,
                     )
                 )
