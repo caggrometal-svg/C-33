@@ -294,7 +294,7 @@ jobs:
           if not health_data:
               raise SystemExit("Railway did not expose the expected certified SHA within 180s")
 
-          ready_deadline = time.time() + 120
+          ready_deadline = time.time() + 180
           ready = None
           last_ready = None
           while time.time() < ready_deadline:
