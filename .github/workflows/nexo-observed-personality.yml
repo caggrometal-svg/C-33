@@ -121,7 +121,22 @@ jobs:
           outputs = []
           failures = []
 
-          with httpx.Client(timeout=httpx.Timeout(35.0, connect=5.0, read=35.0, write=5.0)) as client:
+          with httpx.Client(timeout=httpx.Timeout(25.0, connect=5.0, read=25.0, write=5.0)) as client:
+              health_deadline = time.time() + 180
+              while time.time() < health_deadline:
+                  try:
+                      health = client.get(base + "/health")
+                      health_data = health.json()
+                      if health.status_code == 200 and health_data.get("deployment_sha") == "${GITHUB_SHA}":
+                          ready = client.get(base + "/ready")
+                          if ready.status_code == 200:
+                              break
+                  except Exception:
+                      pass
+                  time.sleep(3)
+              else:
+                  raise SystemExit("production did not expose the current GITHUB_SHA as ready")
+
               for case in cases:
                   conversation_id = f"personality-{case['id']}-{uuid.uuid4().hex}"
                   payload = {
@@ -133,20 +148,37 @@ jobs:
                       "personality": case["personality"],
                       "voice_tone": "neutral",
                   }
+                  response = None
+                  data = {}
+                  last_error = None
+                  for attempt in range(1, 4):
+                      try:
+                          response = client.post(
+                              base + "/v1/chat",
+                              headers={
+                                  "Content-Type": "application/json",
+                                  "X-C33-Allow-Local-Fallback": "false",
+                                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+                              },
+                              json=payload,
+                          )
+                          if response.status_code == 200:
+                              data = response.json()
+                              break
+                          last_error = f"HTTP {response.status_code}"
+                      except Exception as exc:
+                          last_error = repr(exc)
+                      time.sleep(attempt * 2)
+                  if response is None:
+                      failures.append(f"{case['id']}: request error after retries: {last_error}")
+                      continue
                   try:
-                      response = client.post(
-                          base + "/v1/chat",
-                          headers={
-                              "Content-Type": "application/json",
-                              "X-C33-Allow-Local-Fallback": "false",
-                              "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 30) * 1000)),
-                          },
-                          json=payload,
-                      )
                       data = response.json()
                   except Exception as exc:
-                      failures.append(f"{case['id']}: request error: {exc!r}")
+                      failures.append(f"{case['id']}: invalid JSON after retries: {exc!r}")
                       continue
+                  if response.status_code != 200:
+                      failures.append(f"{case['id']}: HTTP {response.status_code} after retries")
 
                   synthesis = str(data.get("synthesis", "")).strip()
                   meta = data.get("_meta") or {}
