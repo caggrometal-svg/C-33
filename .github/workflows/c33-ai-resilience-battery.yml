@@ -39,8 +39,8 @@ jobs:
           failover=0
           providers=""
           for i in 1 2 3 4 5; do
-            request_id="c33-resilience-smoke-\${GITHUB_RUN_ID}-\${i}"
-            conversation_id="c33-resilience-smoke-\${GITHUB_RUN_ID}"
+            request_id="c33-resilience-smoke-$GITHUB_RUN_ID-$i"
+            conversation_id="c33-resilience-smoke-$GITHUB_RUN_ID"
             payload="$(python - "$request_id" "$conversation_id" <<'PY'
           import json, sys
           print(json.dumps({
@@ -58,7 +58,7 @@ jobs:
               -H "Content-Type: application/json" \
               -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))" \
               -d "$payload" "$BASE/v1/chat")"
-            echo "$response" > "response-\${i}.json"
+            echo "$response" > "response-$i.json"
             python - "$response" "$i" <<'PY'
           import json, sys
           data=json.loads(sys.argv[1])
@@ -86,8 +86,8 @@ jobs:
           print((m.get("provider_used") or "") + "|" + str(bool(m.get("failover_triggered"))))
           PY
           )"
-            providers="\${providers} \${meta%%|*}"
-            if [ "\${meta#*|}" = "True" ]; then failover=$((failover+1)); fi
+            providers="$providers $(printf "%s" "$meta" | cut -d"|" -f1)"
+            if [ "$(printf "%s" "$meta" | cut -d"|" -f2)" = "True" ]; then failover=$((failover+1)); fi
           done
           echo "C33_REAL_SMOKE_OK success=$success/5 failover=$failover providers=$providers"
           test "$success" -eq 5
