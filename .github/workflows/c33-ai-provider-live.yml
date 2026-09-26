@@ -185,10 +185,13 @@ jobs:
     timeout-minutes: 5
     needs: ai-provider-live
     steps:
+      - uses: actions/checkout@v5
+      - name: Resolve active C-33 backend
+        run: echo "C33_BASE_URL=$(python -c 'import json; print(json.load(open("infra/c33-endpoints.json"))["production"])')" >> "$GITHUB_ENV"
       - name: Verify Railway liveness
         run: |
           set -euo pipefail
-          BASE="https://iac33-backup-production.up.railway.app"
+          BASE="$C33_BASE_URL"
           body="$(curl --fail-with-body --silent --show-error --retry 12 --retry-delay 3 --retry-max-time 90 --retry-all-errors --max-time 15 "$BASE/health")"
           echo "$body"
           python - "$body" <<'PY'
@@ -202,7 +205,7 @@ jobs:
       - name: Verify Railway AI generation
         run: |
           set -euo pipefail
-          BASE="https://iac33-backup-production.up.railway.app"
+          BASE="$C33_BASE_URL"
           payload='{"message":"Reply exactly C33_PRODUCTION_AI_OK","user_id":"ci","conversation_id":"ci-production-ai","request_id":"ci-production-ai-001","stream":false,"personality":"base","voice_tone":"neutral"}'
           response="$(curl --fail-with-body --silent --show-error --max-time 35             -H "Content-Type: application/json"             -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))"             -d "$payload" "$BASE/v1/chat")"
           echo "$response"

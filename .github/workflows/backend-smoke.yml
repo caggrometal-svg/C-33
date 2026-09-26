@@ -7,22 +7,25 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
+      - name: Resolve active C-33 backend
+        run: echo "C33_BASE_URL=$(python -c 'import json; print(json.load(open("infra/c33-endpoints.json"))["production"])')" >> "$GITHUB_ENV"
       - name: Check health
         run: |
           set -euxo pipefail
-          curl -fsS --max-time 15 https://iac33-backup-production.up.railway.app/health
+          curl -fsS --max-time 15 $C33_BASE_URL/health
           echo
       - name: Check ready
         run: |
           set -euxo pipefail
-          curl -fsS --max-time 15 https://iac33-backup-production.up.railway.app/ready
+          curl -fsS --max-time 15 $C33_BASE_URL/ready
           echo
       - name: Check AI ready
         run: |
           set -euxo pipefail
           curl -fsS --max-time 15 \
             -H 'Cache-Control: no-cache' \
-            https://iac33-backup-production.up.railway.app/v1/ai-ready
+            $C33_BASE_URL/v1/ai-ready
           echo
       - name: Check real SSE stream
         run: |
@@ -33,7 +36,7 @@ jobs:
             -H 'Cache-Control: no-cache' \
             -H 'X-C33-Allow-Local-Fallback: false' \
             --data '{"message":"C33 backend smoke test","user_id":"github-smoke","conversation_id":"github-smoke","request_id":"github-smoke-'${GITHUB_RUN_ID}'","stream":true}' \
-            https://iac33-backup-production.up.railway.app/v1/ai/stream)"
+            $C33_BASE_URL/v1/ai/stream)"
           printf '%s\n' "$body"
           grep -q 'event: token' <<<"$body"
           grep -q 'event: done' <<<"$body"

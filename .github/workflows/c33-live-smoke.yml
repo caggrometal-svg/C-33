@@ -15,10 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      BASE_URL: https://iac33-backup-production.up.railway.app
       EXPECTED_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v5
+      - name: Resolve active C-33 backend
+        run: echo "BASE_URL=$(python -c 'import json; print(json.load(open("infra/c33-endpoints.json"))["production"])')" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
