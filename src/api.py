@@ -1067,7 +1067,11 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     fingerprint = hashlib.sha256(payload.message.encode("utf-8")).hexdigest()[:12]
     logger.info("[NEXO_DEBUG_STREAM] start request_id=%s conversation_id=%s fingerprint=%s", request_id, payload.conversation_id, fingerprint)
 
-    existing = await st.existing_assistant_for_request(payload.conversation_id, request_id)
+    existing = await st.existing_assistant_for_request(
+        payload.conversation_id,
+        request_id,
+        payload.user_id,
+    )
     logger.info("[NEXO_DEBUG_STREAM] idempotency_check request_id=%s existing=%s", request_id, bool(existing))
     if existing:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
