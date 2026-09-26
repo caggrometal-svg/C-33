@@ -48,13 +48,16 @@ jobs:
           done
           curl --silent --show-error --fail --max-time 10 "$BASE/health" >/dev/null
 
+          auth_json="$(python scripts/c33_ci_auth.py "$BASE" "github-idempotency-${GITHUB_RUN_ID}")"
+          authorization="$(python -c 'import json,sys; print(json.load(sys.stdin)["authorization"])' <<<"$auth_json")"
+          identity_id="$(python -c 'import json,sys; print(json.load(sys.stdin)["identity_id"])' <<<"$auth_json")"
           request_id="c33-idempotency-${GITHUB_RUN_ID}"
           conversation_id="c33-idempotency-${GITHUB_RUN_ID}"
-          payload="$(python - "$request_id" "$conversation_id" <<'PY'
+          payload="$(python - "$request_id" "$conversation_id" "$identity_id" <<'PY'
           import json, sys
           print(json.dumps({
               "message": "Reply exactly C33_IDEMPOTENCY_OK",
-              "user_id": "ci-idempotency",
+              "user_id": sys.argv[3],
               "conversation_id": sys.argv[2],
               "request_id": sys.argv[1],
               "stream": False,
@@ -69,6 +72,7 @@ jobs:
             for attempt in 1 2 3 4 5 6; do
               response="$(curl --silent --show-error --max-time 35 \
                 -H "Content-Type: application/json" \
+                -H "Authorization: $authorization" \
                 -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))" \
                 -d "$payload" \
                 -w '\nC33_HTTP_STATUS:%{http_code}' \
