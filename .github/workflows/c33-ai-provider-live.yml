@@ -189,7 +189,7 @@ jobs:
         run: |
           set -euo pipefail
           BASE="https://iac33-backup-production.up.railway.app"
-          body="$(curl --fail-with-body --silent --show-error --max-time 15 "$BASE/health")"
+          body="$(curl --fail-with-body --silent --show-error --retry 12 --retry-delay 3 --retry-max-time 90 --retry-all-errors --max-time 15 "$BASE/health")"
           echo "$body"
           python - "$body" <<'PY'
           import json, sys
