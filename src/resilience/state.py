@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import random
 import re
@@ -22,6 +23,8 @@ import httpx
 from memory.store import MemoryEntry
 
 _MAX_REPLICATION_TEXT_CHARS = 20_000
+
+logger = logging.getLogger("nexo.c33.replication")
 _MAX_REPLICATION_ID_CHARS = 256
 _POSTGRES_BIGINT_MIN = 1
 _POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
@@ -570,6 +573,12 @@ class PostgresState:
                 if receipt_sha256 != expected_sha256:
                     raise RuntimeError("peer replication receipt digest mismatch")
         except Exception as exc:  # bounded background replication
+            logger.warning(
+                "[NEXO_REPLICATION_ERROR] peer=%s batch=%s error=%s",
+                peer_url,
+                len(messages),
+                str(exc)[:500],
+            )
             for message in messages:
                 await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
                 fail_count += 1
