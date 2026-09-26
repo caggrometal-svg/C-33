@@ -16,6 +16,8 @@ const PROBE_TIMEOUT_MS = Number(C.PROBE_TIMEOUT_MS || 2500);
 const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V4";
 const USER_ID_KEY = "C33_USER_ID";
 const CONVERSATION_KEY = "C33_CONVERSATION_ID";
+const CONVERSATION_SCHEMA_KEY = "C33_CONVERSATION_SCHEMA";
+const CONVERSATION_SCHEMA_VERSION = "2026-09-26-nexo-clean";
 const DEVICE_ID_KEY = "C33_DEVICE_ID";
 const IDENTITY_PUBLIC_KEY = "C33_IDENTITY_PUBLIC_JWK";
 const IDENTITY_PRIVATE_KEY = "C33_IDENTITY_PRIVATE_JWK";
@@ -226,8 +228,18 @@ function createId() {
 }
 
 let userId = localStorage.getItem(USER_ID_KEY) || "";
-let conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
-localStorage.setItem(CONVERSATION_KEY, conversationId);
+const storedConversationSchema = localStorage.getItem(CONVERSATION_SCHEMA_KEY);
+let conversationId = localStorage.getItem(CONVERSATION_KEY) || "";
+if (storedConversationSchema !== CONVERSATION_SCHEMA_VERSION) {
+  // Do not delete durable memory or the user identity. Only rotate the chat thread
+  // so contaminated/replayed assistant output from an older build cannot reappear.
+  conversationId = createId();
+  localStorage.setItem(CONVERSATION_SCHEMA_KEY, CONVERSATION_SCHEMA_VERSION);
+  localStorage.setItem(CONVERSATION_KEY, conversationId);
+} else if (!conversationId) {
+  conversationId = createId();
+  localStorage.setItem(CONVERSATION_KEY, conversationId);
+}
 const deviceId = localStorage.getItem(DEVICE_ID_KEY) || createId();
 localStorage.setItem(DEVICE_ID_KEY, deviceId);
 
