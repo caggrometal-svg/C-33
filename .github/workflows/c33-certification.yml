@@ -414,7 +414,7 @@ jobs:
           import hashlib
           migrated_bundle["sha256"] = hashlib.sha256(raw_digest).hexdigest()
 
-          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": False}, timeout=12)
+          imported = httpx.post(base + "/v1/import", json={"bundle": migrated_bundle, "replicate": True}, timeout=12)
           if imported.status_code != 200:
               raise SystemExit(f"import failed: {imported.status_code} {imported.text}")
           import_data = imported.json()
