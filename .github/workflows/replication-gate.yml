@@ -1,4 +1,4 @@
-name: C-33 Replication Gate
+name: C-33 Cross-node Replication Gate
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   replication:
-    name: Replication 459-to-0 integrity gate
+    name: Cross-node replication integrity gate
     runs-on: ubuntu-latest
     steps:
       - name: Drain and certify replication backlog
@@ -54,7 +54,7 @@ jobs:
                   if int(peer.get("replication_pending", -1)) != 0:
                       raise SystemExit("peer_pending_nonzero")
                   print(json.dumps({"production_host":base_host,"peer_host":peer_host,"peer_role":peer.get("backend_role"),"replication_pending":peer.get("replication_pending"),"total_messages":peer.get("total_messages")}, sort_keys=True))
-                  print("C33_REPLICATION_459_TO_0_GREEN")
+                  print("C33_REPLICATION_INTEGRITY_GREEN")
                   raise SystemExit(0)
               time.sleep(5)
           raise SystemExit("replication_gate_timeout:" + json.dumps(last, sort_keys=True))
