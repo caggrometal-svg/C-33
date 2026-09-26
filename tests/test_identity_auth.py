@@ -95,7 +95,8 @@ class IdentityAuthTests(unittest.TestCase):
             device_id="device-a",
         )
         encoded, signature = token.split(".", 1)
-        tampered = encoded + "." + b64url(bytes([signature.encode("ascii")[0] ^ 1])) + signature[1:]
+        replacement = "A" if signature[0] != "A" else "B"
+        tampered = encoded + "." + replacement + signature[1:]
         with self.assertRaises(IdentityAuthError):
             verify_session(tampered, self.SECRET)
 
@@ -105,10 +106,6 @@ class IdentityAuthTests(unittest.TestCase):
             identity_id_from_public_key(json.loads(json.dumps(self.jwk_a))),
         )
         self.assertNotEqual(self.identity_a, self.identity_b)
-
-
-if any("import" in p for p in []):
-    raise RuntimeError("unreachable")
 
 
 if __name__ == "__main__":
