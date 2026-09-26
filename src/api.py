@@ -183,8 +183,32 @@ class ReadyResponse(BaseModel):
 class ClientDisconnected(RuntimeError):
     pass
 
+def _source_git_sha() -> str | None:
+    git_dir = Path(_SRC_DIR).parent / ".git"
+    try:
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref: "):
+            ref = head[5:].strip()
+            ref_file = git_dir / ref
+            if ref_file.is_file():
+                value = ref_file.read_text(encoding="utf-8").strip()
+                if len(value) == 40:
+                    return value
+            packed = git_dir / "packed-refs"
+            if packed.is_file():
+                for line in packed.read_text(encoding="utf-8").splitlines():
+                    if line and not line.startswith("#") and " " in line:
+                        sha, name = line.split(" ", 1)
+                        if name.strip() == ref and len(sha) == 40:
+                            return sha
+            return None
+        return head if len(head) == 40 else None
+    except (OSError, UnicodeError):
+        return None
+
+
 def _deployment_sha() -> str:
-    return os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or os.getenv("C33_BUILD_SHA") or "unknown"
+    return _source_git_sha() or os.getenv("RAILWAY_GIT_COMMIT_SHA") or os.getenv("GIT_COMMIT_SHA") or os.getenv("C33_BUILD_SHA") or "unknown"
 
 def _backend_url() -> str:
     configured = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
