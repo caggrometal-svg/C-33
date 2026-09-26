@@ -976,6 +976,163 @@ async function requestWithFailoverHttp(path, options = {}) {
   );
 }
 
+async function recoverInterruptedStream(requestPayload, streamError = "", partialNode = null) {
+  const started = performance.now();
+  const requestId = String(requestPayload?.request_id || "").trim();
+  if (!requestId) throw new Error("recovery_request_id_missing");
+
+  const replayHeaders = {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-cache",
+    "X-C33-Replay-Only": "true",
+    "X-C33-Recovery": "sse-request-id",
+  };
+  const payload = JSON.stringify({ ...requestPayload, stream: false });
+  const railwayIndex = 0;
+  const backupIndices = BACKEND_URLS.map((_, index) => index).filter((index) => index !== railwayIndex);
+  const replayWindowMs = Math.min(12000, Math.max(4000, CLIENT_TIMEOUT_MS));
+  const replayDeadline = Date.now() + replayWindowMs;
+  let railwayReplayed = false;
+  let lastError = null;
+
+  recordDiagnostic("stream-replay-start", {
+    request_id: requestId,
+    reason: streamError,
+    sequence: "Railway -> Deplexo",
+  });
+
+  if (BACKEND_URLS[railwayIndex]) {
+    while (Date.now() < replayDeadline) {
+      try {
+        const remaining = Math.max(750, replayDeadline - Date.now());
+        const response = await fetchBounded(
+          BACKEND_URLS[railwayIndex] + API_PATH,
+          {
+            method: "POST",
+            headers: authorizedHeaders(replayHeaders),
+            body: payload,
+          },
+          Math.min(3500, remaining),
+        );
+        const bodyText = await response.text().catch(() => "");
+        let data = null;
+        try { data = JSON.parse(bodyText); } catch {}
+
+        recordDiagnostic("stream-replay-railway", {
+          request_id: requestId,
+          status: response.status,
+          backend: railwayIndex,
+          role: backendRole(railwayIndex),
+          replayed: Boolean(data?._meta?.replayed),
+        });
+
+        if (response.ok && data?.synthesis) {
+          if (String(data.request_id || data._meta?.request_id || "") !== requestId) {
+            throw new Error("replay_request_id_mismatch");
+          }
+          railwayReplayed = Boolean(data?._meta?.replayed);
+          if (railwayReplayed) {
+            recordBackendSuccess(railwayIndex);
+            if (partialNode) partialNode.remove();
+            const assistantNode = addMessage(data.synthesis, "assistant");
+            const sources = data?.web_searches || data?._meta?.web_searches || [];
+            if (!data?._meta?.used_local_fallback) renderWebSources(assistantNode, sources);
+            lastMeta = { ...(data?._meta || {}), replayed: true, request_id: requestId };
+            transition("AI_READY", "NEXO · recuperación por request_id · Railway");
+            return { data, backend: railwayIndex, replayed: true, recovery: "railway" };
+          }
+        }
+
+        if (response.status !== 409) {
+          throw new Error("railway_replay_http_" + response.status);
+        }
+      } catch (error) {
+        lastError = error;
+        recordDiagnostic("stream-replay-railway-error", {
+          request_id: requestId,
+          reason: normalizeError(error),
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+  }
+
+  for (const index of backupIndices) {
+    const base = BACKEND_URLS[index];
+    if (!base) continue;
+    try {
+      const response = await fetchBounded(
+        base + API_PATH,
+        {
+          method: "POST",
+          headers: authorizedHeaders({
+            ...replayHeaders,
+            "X-C33-Replay-Only": "false",
+          }),
+          body: payload,
+        },
+        Math.min(12000, Math.max(1000, CLIENT_TIMEOUT_MS)),
+      );
+      const bodyText = await response.text().catch(() => "");
+      let data = null;
+      try { data = JSON.parse(bodyText); } catch {}
+
+      recordDiagnostic("stream-replay-deplexo", {
+        request_id: requestId,
+        status: response.status,
+        backend: index,
+        role: backendRole(index),
+        replayed: Boolean(data?._meta?.replayed),
+      });
+
+      if (!response.ok || !data?.synthesis) {
+        throw new Error("deplexo_recovery_http_" + response.status);
+      }
+      if (String(data.request_id || data._meta?.request_id || "") !== requestId) {
+        throw new Error("recovery_request_id_mismatch");
+      }
+
+      recordBackendSuccess(index);
+      if (partialNode) partialNode.remove();
+      const assistantNode = addMessage(data.synthesis, "assistant");
+      const sources = data?.web_searches || data?._meta?.web_searches || [];
+      if (!data?._meta?.used_local_fallback) renderWebSources(assistantNode, sources);
+      lastMeta = {
+        ...(data?._meta || {}),
+        request_id: requestId,
+        recovered_after_sse_interrupt: true,
+        replayed: Boolean(data?._meta?.replayed),
+      };
+      const degraded = index !== 0 || Boolean(lastMeta?.failover_triggered) || Boolean(lastMeta?.replayed);
+      transition(
+        degraded ? "DEGRADED" : "AI_READY",
+        "NEXO · recuperación " + (lastMeta.replayed ? "por request_id" : "HTTP") + " · " + backendRole(index),
+      );
+      return {
+        data,
+        backend: index,
+        replayed: Boolean(lastMeta.replayed),
+        recovery: "deplexo",
+      };
+    } catch (error) {
+      lastError = error;
+      recordDiagnostic("stream-replay-deplexo-error", {
+        request_id: requestId,
+        backend: index,
+        role: backendRole(index),
+        reason: normalizeError(error),
+      });
+      recordBackendFailure(index, normalizeError(error));
+    }
+  }
+
+  const error = new Error("stream_recovery_exhausted");
+  error.cause = lastError;
+  error.code = "REMOTE_EXHAUSTED";
+  error.request_id = requestId;
+  throw error;
+}
+
 function resizeInput() {
   input.style.height = "auto";
   input.style.height = Math.min(input.scrollHeight, 150) + "px";
@@ -1020,42 +1177,25 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify(requestPayload),
     });
   } catch (error) {
-    if (error?.code === "REMOTE_EXHAUSTED") {
-      recordDiagnostic("stream-exhausted", {
+    const hadPartialStream = /NEXO stream interrumpido:/i.test(String(error?.message || ""));
+    const partialNode = [...chat.querySelectorAll(".message.assistant")].at(-1) || null;
+    if (hadPartialStream || error?.code === "REMOTE_EXHAUSTED") {
+      recordDiagnostic("stream-recovery-required", {
         reason: error.message || "REMOTE_EXHAUSTED",
         request_id: requestId,
+        interrupted_after_partial: hadPartialStream,
       });
       try {
-        const httpResult = await requestWithFailover(API_PATH, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...requestPayload, stream: false }),
+        const recovered = await recoverInterruptedStream(requestPayload, error.message || "REMOTE_EXHAUSTED", partialNode);
+        recordDiagnostic("stream-recovery-complete", {
+          request_id: requestId,
+          backend: recovered.backend,
+          recovery: recovered.recovery,
+          replayed: recovered.replayed,
         });
-        const data = httpResult?.data;
-        if (data?.synthesis) {
-          const assistantNode = addMessage(data.synthesis, "assistant");
-          const usedLocalFallback = Boolean(data?._meta?.used_local_fallback);
-          if (!usedLocalFallback) {
-            renderWebSources(assistantNode, data?.web_searches || data?._meta?.web_searches || []);
-          }
-          transition(
-            usedLocalFallback ? "DEGRADED" : "AI_READY",
-            usedLocalFallback
-              ? "NEXO · respaldo local · recuperación HTTP"
-              : "NEXO · IA lista · recuperación HTTP",
-          );
-          recordDiagnostic("stream-http-recovery", {
-            request_id: requestId,
-            provider: data?._meta?.provider_used || "",
-            status: httpResult?.response?.status ?? null,
-            used_local_fallback: usedLocalFallback,
-          });
-        } else {
-          throw new Error("http_recovery_empty_response");
-        }
       } catch (recoveryError) {
         const recoveryReason = normalizeError(recoveryError);
-        recordDiagnostic("stream-http-recovery-failed", {
+        recordDiagnostic("stream-recovery-failed", {
           request_id: requestId,
           reason: recoveryReason,
           error_name: recoveryError?.name || "",
