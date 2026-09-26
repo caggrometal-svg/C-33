@@ -260,7 +260,7 @@ class WebTool:
 
         results: list[SearchResult] = []
         pattern = re.compile(
-            r'<a[^>]*class=["\\']result-link["\\'][^>]*href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>',
+            r"<a[^>]*class=['\"]result-link['\"][^>]*href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>",
             re.IGNORECASE | re.DOTALL,
         )
         for href, raw_title in pattern.findall(html):
