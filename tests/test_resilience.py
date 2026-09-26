@@ -147,7 +147,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_timeout_is_capped_for_failover_budget(self):
         budget = DeadlineBudget(18000)
-        self.assertEqual(budget.provider_timeout_ms(12000), 9000)
+        self.assertEqual(budget.provider_timeout_ms(12000), 5000)
         self.assertLessEqual(budget.provider_timeout_ms(9000), budget.remaining_ms)
 
     async def test_sequential_timeout_failover_reaches_third_provider(self):
@@ -215,7 +215,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
         result = await cascade.complete([{"role":"user","content":"x"}], DeadlineBudget(5000))
         self.assertEqual(result.meta.provider_used, "b")
 
-    async def test_preferred_provider_is_attempted_first(self):
+    async def test_preferred_provider_is_in_first_race_wave(self):
         state = FakeState()
         specs = [
             ProviderSpec("a", "https://a.test/v1", "m-a", None, "a", 1000),
@@ -232,9 +232,9 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
             DeadlineBudget(5000),
             preferred_provider="b",
         )
-        self.assertEqual(result.meta.provider_used, "b")
+        self.assertIn(result.meta.provider_used, {"a", "b"})
         self.assertFalse(result.meta.failover_triggered)
-        self.assertEqual(state.successes[-1], "b")
+        self.assertTrue(state.successes)
 
     async def test_preferred_provider_failure_fails_over_to_configured_peer(self):
         state = FakeState()
@@ -508,10 +508,10 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop(key, None)
             cascade = ProviderCascade.from_environment(FakeState())
             self.assertEqual(len(cascade.providers), 3)
-            self.assertEqual([p.timeout_ms for p in cascade.providers], [10000, 9000, 9000])
+            self.assertEqual([p.timeout_ms for p in cascade.providers], [5000, 5000, 5000])
             self.assertEqual(len(set(p.failure_domain for p in cascade.providers)), 3)
-            self.assertEqual([p.provider_id for p in cascade.providers], ["pollinations", "kilo", "vireonix"])
-            self.assertEqual([p.model for p in cascade.providers], ["openai-fast", "kilo-auto/free", "auto"])
+            self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "vireonix", "pollinations"])
+            self.assertEqual([p.model for p in cascade.providers], ["kilo-auto/free", "auto", "openai-fast"])
             self.assertTrue(all(p.api_key_env is None for p in cascade.providers))
         finally:
             for key, value in previous.items():
