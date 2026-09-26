@@ -16,6 +16,11 @@ const PROBE_TIMEOUT_MS = Number(C.PROBE_TIMEOUT_MS || 2500);
 const CIRCUIT_KEY = "C33_BACKEND_CIRCUITS_V4";
 const USER_ID_KEY = "C33_USER_ID";
 const CONVERSATION_KEY = "C33_CONVERSATION_ID";
+const DEVICE_ID_KEY = "C33_DEVICE_ID";
+const IDENTITY_PUBLIC_KEY = "C33_IDENTITY_PUBLIC_JWK";
+const IDENTITY_PRIVATE_KEY = "C33_IDENTITY_PRIVATE_JWK";
+const SESSION_TOKEN_KEY = "C33_IDENTITY_SESSION";
+const SESSION_EXPIRES_KEY = "C33_IDENTITY_SESSION_EXPIRES";
 const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V1";
 const MAX_DIAGNOSTICS = 40;
 const CONFIG_VERSION = String(C.CONFIG_VERSION || "bundled-fallback");
@@ -105,11 +110,9 @@ function createId() {
   return "c33-" + Date.now() + "-" + Math.random().toString(36).slice(2);
 }
 
-let userId = localStorage.getItem(USER_ID_KEY) || createId();
-localStorage.setItem(USER_ID_KEY, userId);
+let userId = localStorage.getItem(USER_ID_KEY) || "";
 let conversationId = localStorage.getItem(CONVERSATION_KEY) || createId();
 localStorage.setItem(CONVERSATION_KEY, conversationId);
-const DEVICE_ID_KEY = "C33_DEVICE_ID";
 const deviceId = localStorage.getItem(DEVICE_ID_KEY) || createId();
 localStorage.setItem(DEVICE_ID_KEY, deviceId);
 
@@ -140,6 +143,7 @@ function setSettingsOpen(open) {
   (open ? settingsClose : settingsOpen)?.focus();
 }
 async function exportNexoData() {
+  await ensureIdentitySession();
   const response = await requestWithFailover("/v1/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -172,6 +176,7 @@ async function exportNexoData() {
 
 async function importNexoData(file) {
   if (!file) return;
+  await ensureIdentitySession();
   const raw = await file.text();
   let bundle;
   try { bundle = JSON.parse(raw); }
@@ -361,6 +366,165 @@ async function fetchBounded(url, options = {}, timeoutMs = CLIENT_TIMEOUT_MS) {
   }
 }
 
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/g, "");
+}
+
+function arrayBufferToBase64Url(buffer) {
+  return bytesToBase64Url(new Uint8Array(buffer));
+}
+
+function getStoredSessionExpiry() {
+  return Number(localStorage.getItem(SESSION_EXPIRES_KEY) || 0);
+}
+
+function getSessionToken() {
+  const token = localStorage.getItem(SESSION_TOKEN_KEY) || "";
+  return token.trim();
+}
+
+function authorizedHeaders(headers = {}) {
+  const token = getSessionToken();
+  return token ? { ...headers, Authorization: "Bearer " + token } : { ...headers };
+}
+
+function clearIdentitySession() {
+  try {
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+    localStorage.removeItem(SESSION_EXPIRES_KEY);
+  } catch {}
+}
+
+async function loadOrCreateIdentityKeys() {
+  let publicJwk = null;
+  let privateJwk = null;
+  try {
+    publicJwk = JSON.parse(localStorage.getItem(IDENTITY_PUBLIC_KEY) || "null");
+    privateJwk = JSON.parse(localStorage.getItem(IDENTITY_PRIVATE_KEY) || "null");
+  } catch {
+    publicJwk = null;
+    privateJwk = null;
+  }
+
+  if (!publicJwk || !privateJwk) {
+    const pair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    publicJwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+    privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+    localStorage.setItem(IDENTITY_PUBLIC_KEY, JSON.stringify(publicJwk));
+    localStorage.setItem(IDENTITY_PRIVATE_KEY, JSON.stringify(privateJwk));
+  }
+  if (publicJwk?.kty !== "EC" || publicJwk?.crv !== "P-256" || privateJwk?.kty !== "EC") {
+    localStorage.removeItem(IDENTITY_PUBLIC_KEY);
+    localStorage.removeItem(IDENTITY_PRIVATE_KEY);
+    return loadOrCreateIdentityKeys();
+  }
+  return { publicJwk, privateJwk };
+}
+
+async function ensureIdentitySession(preferredBackend = null, force = false) {
+  if (!force && getSessionToken() && getStoredSessionExpiry() > Date.now() + 60_000 && userId) {
+    return { identity_id: userId, session_token: getSessionToken() };
+  }
+
+  const { publicJwk, privateJwk } = await loadOrCreateIdentityKeys();
+  const privateKey = await crypto.subtle.importKey(
+    "jwk",
+    privateJwk,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+
+  const indices = [...Array(BACKEND_URLS.length).keys()];
+  const ordered = preferredBackend == null
+    ? indices
+    : [preferredBackend, ...indices.filter((index) => index !== preferredBackend)];
+  let lastError = null;
+
+  for (const index of ordered) {
+    const base = BACKEND_URLS[index];
+    if (!base) continue;
+    try {
+      const challengeResponse = await fetchBounded(
+        base + (C.AUTH_CHALLENGE_PATH || "/v1/auth/challenge"),
+        {
+          method: "POST",
+          headers: { "Cache-Control": "no-cache" },
+        },
+        8000,
+      );
+      const challengeBody = await challengeResponse.text().catch(() => "");
+      if (!challengeResponse.ok) {
+        throw new Error("auth_challenge_http_" + challengeResponse.status);
+      }
+      const challengeData = JSON.parse(challengeBody);
+      const challenge = String(challengeData.challenge || "").trim();
+      if (!challenge) throw new Error("auth_challenge_missing");
+
+      const rawSignature = await crypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        privateKey,
+        new TextEncoder().encode(challenge),
+      );
+      const sessionResponse = await fetchBounded(
+        base + (C.AUTH_SESSION_PATH || "/v1/auth/session"),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-cache" },
+          body: JSON.stringify({
+            challenge,
+            device_id: deviceId,
+            public_key: publicJwk,
+            signature: arrayBufferToBase64Url(rawSignature),
+          }),
+        },
+        10000,
+      );
+      const sessionBody = await sessionResponse.text().catch(() => "");
+      if (!sessionResponse.ok) {
+        throw new Error("auth_session_http_" + sessionResponse.status);
+      }
+      const sessionData = JSON.parse(sessionBody);
+      const identityId = String(sessionData.identity_id || "").trim();
+      const token = String(sessionData.session_token || "").trim();
+      const expiresAt = Number(sessionData.expires_at || 0);
+      if (!identityId || !token || !Number.isFinite(expiresAt) || expiresAt <= Date.now() / 1000) {
+        throw new Error("auth_session_invalid");
+      }
+      userId = identityId;
+      localStorage.setItem(USER_ID_KEY, userId);
+      localStorage.setItem(SESSION_TOKEN_KEY, token);
+      localStorage.setItem(SESSION_EXPIRES_KEY, String(Math.floor(expiresAt * 1000)));
+      recordDiagnostic("identity-session-ready", {
+        backend: index,
+        role: backendRole(index),
+        identity_id: identityId,
+        device_id: deviceId,
+        expires_at: expiresAt,
+      });
+      return sessionData;
+    } catch (error) {
+      lastError = error;
+      recordDiagnostic("identity-session-error", {
+        backend: index,
+        role: backendRole(index),
+        reason: normalizeError(error),
+      });
+    }
+  }
+
+  throw lastError || new Error("identity_session_unavailable");
+}
+
 async function probeBackend(index, { ignoreCircuit = false } = {}) {
   const base = BACKEND_URLS[index];
   if (!base) return { backend: index, state: "OFFLINE", reason: "not_configured" };
@@ -499,9 +663,11 @@ function orderedBackends() {
 }
 
 async function streamChatWithFailover(options = {}) {
+  await ensureIdentitySession();
   const started = performance.now();
   const deadlineAt = Date.now() + CLIENT_TIMEOUT_MS;
   const failures = [];
+  let authRetried = false;
 
   for (const index of orderedBackends()) {
     const remaining = Math.max(750, deadlineAt - Date.now());
@@ -524,14 +690,14 @@ async function streamChatWithFailover(options = {}) {
     try {
       const response = await fetch(base + "/v1/ai/stream", {
         ...options,
-        headers: {
+        headers: authorizedHeaders({
           ...(options.headers || {}),
           "Accept": "text/event-stream",
           "Cache-Control": "no-cache",
           "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
           "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
           "X-C33-Allow-Local-Fallback": "true",
-        },
+        }),
         signal: controller.signal,
         cache: "no-store",
       });
@@ -544,6 +710,12 @@ async function streamChatWithFailover(options = {}) {
       });
 
       if (!response.ok) {
+        if (response.status === 401 && !authRetried) {
+          authRetried = true;
+          clearIdentitySession();
+          await ensureIdentitySession(index, true);
+          continue;
+        }
         let detail = "HTTP " + response.status;
         let errorBody = "";
         try {
@@ -721,6 +893,9 @@ async function requestWithFailoverHttp(path, options = {}) {
   const started = performance.now();
   const deadlineAt = Date.now() + CLIENT_TIMEOUT_MS;
   const failures = [];
+  let authRetried = Boolean(options.__authRetried);
+  const requestOptions = { ...options };
+  delete requestOptions.__authRetried;
   for (const index of orderedBackends()) {
     const remaining = Math.max(500, deadlineAt - Date.now());
     if (remaining <= 500) break;
@@ -735,12 +910,12 @@ async function requestWithFailoverHttp(path, options = {}) {
       const response = await fetchBounded(
         base + path,
         {
-          ...options,
-          headers: {
-            ...(options.headers || {}),
+          ...requestOptions,
+          headers: authorizedHeaders({
+            ...(requestOptions.headers || {}),
             "X-C33-Deadline-Epoch-Ms": String(deadlineAt),
             "X-C33-Client-Timeout-Ms": String(CLIENT_TIMEOUT_MS),
-          },
+          }),
         },
         attemptTimeout,
       );
@@ -756,6 +931,12 @@ async function requestWithFailoverHttp(path, options = {}) {
       let data = null;
       try { data = await response.json(); } catch { data = null; }
       if (!response.ok) {
+        if (response.status === 401 && !authRetried && !String(path).startsWith("/v1/auth/")) {
+          authRetried = true;
+          clearIdentitySession();
+          await ensureIdentitySession(index, true);
+          continue;
+        }
         const reason = data?.detail?.reason || data?.detail || "HTTP " + response.status;
         recordDiagnostic("http-error", {
           backend: index,
@@ -832,6 +1013,7 @@ form.addEventListener("submit", async (event) => {
     voice_tone: nexoSettings.voiceTone,
   };
   try {
+    await ensureIdentitySession();
     await streamChatWithFailover({
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -929,6 +1111,11 @@ if ("SpeechRecognition" in window || "webkitSpeechRecognition" in window) {
   audio.addEventListener("click", () => addMessage("El reconocimiento de voz no está disponible en este dispositivo.", "error"));
 }
 
+ensureIdentitySession().catch((error) => {
+  recordDiagnostic("identity-bootstrap-failed", {
+    reason: normalizeError(error),
+  });
+});
 refreshConnection();
 setInterval(() => { if (document.visibilityState === "visible" && activeControllers.size === 0) refreshConnection(); }, 60000);
 resizeInput();
