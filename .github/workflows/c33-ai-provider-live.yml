@@ -42,10 +42,10 @@ jobs:
               async def circuit_before_call(self, provider_id):
                   return SimpleNamespace(allowed=True, cooldown_ms=0)
 
-              async def circuit_success(self, **kwargs):
+              async def circuit_success(self, provider_id, **kwargs):
                   return None
 
-              async def circuit_failure(self, **kwargs):
+              async def circuit_failure(self, provider_id, **kwargs):
                   return None
 
           class Transport(httpx.AsyncBaseTransport):
