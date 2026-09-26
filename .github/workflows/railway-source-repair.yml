@@ -11,7 +11,6 @@ permissions:
 
 jobs:
   repair:
-    if: ${{ secrets.RAILWAY_API_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
@@ -21,6 +20,8 @@ jobs:
       SERVICE_ID: 72e6e976-2f75-4eee-bd61-9836910fa564
     steps:
       - uses: actions/checkout@v5
+      - name: Check token presence
+        run: test -n "$RAILWAY_API_TOKEN"
       - name: Install Railway CLI
         run: npm install -g @railway/cli
       - name: Connect canonical C-33 GitHub source
@@ -38,18 +39,10 @@ jobs:
             --service "$SERVICE_ID" \
             --project "$PROJECT_ID" \
             --environment "$ENVIRONMENT_ID"
-      - name: Show service status
+      - name: Show source
         run: |
           railway service status \
             --service "$SERVICE_ID" \
             --project "$PROJECT_ID" \
             --environment "$ENVIRONMENT_ID" \
             --json
-
-  no-token:
-    if: ${{ secrets.RAILWAY_API_TOKEN == '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "RAILWAY_API_TOKEN is not configured in GitHub Actions."
-          exit 78
