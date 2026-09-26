@@ -574,10 +574,11 @@ class PostgresState:
                     raise RuntimeError("peer replication receipt digest mismatch")
         except Exception as exc:  # bounded background replication
             logger.warning(
-                "[NEXO_REPLICATION_ERROR] peer=%s batch=%s error=%s",
+                "[NEXO_REPLICATION_ERROR] peer=%s batch=%s error_type=%s error=%r",
                 peer_url,
                 len(messages),
-                str(exc)[:500],
+                exc.__class__.__name__,
+                exc,
             )
             for message in messages:
                 await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
