@@ -62,6 +62,22 @@ class NexoCore:
         "corrections to improve future answers."
     )
 
+    SELF_REFERENCE_PATTERNS = {
+        "nexo",
+        "oye nexo",
+        "hola nexo",
+        "buenas nexo",
+        "buen dia nexo",
+        "buen día nexo",
+        "eres nexo",
+        "quien eres nexo",
+        "quién eres nexo",
+        "que eres nexo",
+        "qué eres nexo",
+        "que puedes hacer nexo",
+        "qué puedes hacer nexo",
+    }
+
     @classmethod
     def normalize_personality(cls, mode: str | None) -> str:
         """Return a supported personality key, defaulting to NEXO's neutral persona."""
@@ -82,6 +98,34 @@ class NexoCore:
         return aliases.get(candidate, "neutral")
 
     @classmethod
+    def is_self_reference(cls, prompt: str | None) -> bool:
+        """Return True only for clear, short references to the NEXO assistant."""
+        clean = " ".join((prompt or "").strip().lower().split())
+        if not clean:
+            return False
+        if clean in cls.SELF_REFERENCE_PATTERNS:
+            return True
+        return bool(
+            clean.startswith("nexo,")
+            and len(clean) <= 80
+            and not any(
+                marker in clean
+                for marker in (
+                    "empresa",
+                    "compañía",
+                    "compania",
+                    "plataforma",
+                    "cripto",
+                    "crypto",
+                    "préstamo",
+                    "prestamo",
+                    "token",
+                    "finanzas",
+                )
+            )
+        )
+
+    @classmethod
     def personality_guidance(cls, mode: str | None = None) -> str:
         """Return the active style directive without changing NEXO's core values."""
         normalized = cls.normalize_personality(mode)
@@ -100,7 +144,13 @@ class NexoCore:
             f"You are {cls.name}. You are masculine in persona. "
             f"Core personality: {cls.personality}. "
             f"Active style: {cls.personality_guidance(personality_mode)} "
-            f"{cls.CORE_DIRECTIVE} {cls.ANALYSIS_DIRECTIVE} {cls.LEARNING_DIRECTIVE}"
+            f"{cls.CORE_DIRECTIVE} {cls.ANALYSIS_DIRECTIVE} {cls.LEARNING_DIRECTIVE} "
+            "When the user refers to NEXO without explicitly identifying an external "
+            "entity, interpret NEXO as this assistant. Do not import facts about an "
+            "external company, product, token or service merely because it shares the "
+            "name NEXO. When an external Nexo is explicitly requested, verify that "
+            "entity independently and do not infer regulatory status from branding, "
+            "headquarters, or third-party summaries."
         )
 
     @classmethod
