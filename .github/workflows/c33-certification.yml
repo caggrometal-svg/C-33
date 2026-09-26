@@ -372,7 +372,7 @@ jobs:
 
           payload = {
               "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
-              "user_id": "github-certification",
+              "user_id": auth_identity,
               "conversation_id": "cert-" + uuid.uuid4().hex,
               "request_id": uuid.uuid4().hex,
               "stream": False,
@@ -389,7 +389,7 @@ jobs:
 
           web_payload = {
               "message": "Usa Internet: consulta una fuente externa sobre Artemis II y responde mencionando la URL de una fuente consultada.",
-              "user_id": "github-web-certification",
+              "user_id": auth_identity,
               "conversation_id": "web-cert-" + uuid.uuid4().hex,
               "request_id": uuid.uuid4().hex,
               "stream": False,
@@ -416,7 +416,7 @@ jobs:
 
           second_payload = {
               "message": "Using the conversation context, reply briefly with C33_MEMORY_OK.",
-              "user_id": "github-certification",
+              "user_id": auth_identity,
               "conversation_id": payload["conversation_id"],
               "request_id": uuid.uuid4().hex,
               "stream": False,
@@ -513,7 +513,7 @@ jobs:
               base + "/v1/ai/stream",
               json={
                   "message": "Reply briefly with C33_SSE_OK.",
-                  "user_id": "github-certification",
+                  "user_id": auth_identity,
                   "conversation_id": "sse-" + uuid.uuid4().hex,
                   "request_id": uuid.uuid4().hex,
                   "stream": True,
