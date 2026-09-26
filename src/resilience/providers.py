@@ -678,9 +678,29 @@ class ProviderCascade:
                                 retry_after_ms=self._parse_retry_after_ms(raw)
                                 raise GenerationFailure("rate_limited",http_status=429,attempts=[],retry_after_ms=retry_after_ms)
                             if response.status_code in {401,403}: raise GenerationFailure("auth_error",http_status=response.status_code,attempts=[])
-                            if response.status_code==408: raise GenerationFailure("timeout",http_status=408,attempts=[])
+                            if response.status_code==408: raise GenerationFailure("timeout",http_status=response.status_code,attempts=[])
                             if response.status_code>=500: raise GenerationFailure("provider_5xx",http_status=response.status_code,attempts=[])
                             raise GenerationFailure(f"provider_http_{response.status_code}",http_status=response.status_code,attempts=[])
+
+                        # Some zero-cost OpenAI-compatible gateways ignore stream=true and
+                        # return a normal JSON completion with HTTP 200. Treat that response
+                        # as a single-chunk stream instead of returning an empty SSE sequence.
+                        content_type=(response.headers.get("content-type") or "").lower()
+                        if "text/event-stream" not in content_type:
+                            try:
+                                data=await response.json()
+                                piece=data["choices"][0]["message"]["content"]
+                            except (ValueError,KeyError,IndexError,TypeError) as exc:
+                                raise GenerationFailure("invalid_provider_response",http_status=502,attempts=[]) from exc
+                            if not isinstance(piece,str) or not piece.strip():
+                                raise GenerationFailure("empty_stream",http_status=502,attempts=[])
+                            got_token=True
+                            latency=int((time.monotonic()-started)*1000)
+                            used_fallback=bool(preferred_provider and spec.provider_id != preferred_provider) or (not preferred_provider and index>0)
+                            await self.state.circuit_success(spec.provider_id,model=spec.model,latency_ms=latency)
+                            yield piece.strip(),ProviderMeta(spec.provider_id,spec.model,used_fallback,len(attempts)+1,latency,"streaming","AI_READY" if not used_fallback else "DEGRADED")
+                            return
+
                         async for line in response.aiter_lines():
                             if not line.startswith("data:"): continue
                             item=line[5:].strip()
