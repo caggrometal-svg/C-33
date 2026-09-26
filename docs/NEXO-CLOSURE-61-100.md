@@ -1,62 +1,72 @@
 # NEXO — Extensión de cierre 61-100
 
-## Alcance
+## Regla de certificación veraz
 
-Las secciones 61-72 pertenecen al gobierno y aceptación del mapa maestro. Las 73-100 constituyen una extensión de ingeniería posterior creada en este ciclo para hacer medibles los siguientes requisitos sin declarar capacidades externas inexistentes como terminadas.
+Las secciones 61-100 se certifican en dos ejes independientes:
 
-## Estado contractual/automatizado
+- **Contractual:** GREEN significa que el requisito está definido, delimitado y automatizado mediante pruebas deterministas.
+- **Runtime:** GREEN significa que existe evidencia observada en el ciclo de certificación actual para la capacidad desplegada.
+- **Runtime BLUE:** la capacidad puede existir en código o tener contrato/tests, pero no existe evidencia runtime actual suficiente para declararla operativa.
+- **Runtime N/A:** la sección es de gobierno/aceptación y no representa una capacidad runtime.
 
-- 61 Operational priority — 🟢 VERDE
-- 62 Acceptance rule — 🟢 VERDE
-- 63 Capability truth — 🟢 VERDE
-- 64 User control — 🟢 VERDE
-- 65 Observability evidence — 🟢 VERDE
-- 66 Recovery documentation — 🟢 VERDE
-- 67 Replaceability — 🟢 VERDE
-- 68 Isolation — 🟢 VERDE
-- 69 Immediate objective — 🟢 VERDE
-- 70 Architecture map — 🟢 VERDE
-- 71 Design criterion — 🟢 VERDE
-- 72 Final objective — 🟢 VERDE
-- 73 Release provenance — 🟢 VERDE
-- 74 Configuration integrity — 🟢 VERDE
-- 75 Dependency isolation — 🟢 VERDE
-- 76 Security boundary — 🟢 VERDE
-- 77 Privacy boundary — 🟢 VERDE
-- 78 Data integrity — 🟢 VERDE
-- 79 Replication safety — 🟢 VERDE
-- 80 Failover safety — 🟢 VERDE
-- 81 Stream reliability — 🟢 VERDE
-- 82 API compatibility — 🟢 VERDE
-- 83 Test determinism — 🟢 VERDE
-- 84 CI enforcement — 🟢 VERDE
-- 85 Deployment provenance — 🟢 VERDE
-- 86 Runtime attestation — 🟢 VERDE
-- 87 Rollback readiness — 🟢 VERDE
-- 88 Disaster recovery — 🟢 VERDE
-- 89 Backup verification — 🟢 VERDE
-- 90 Import/export compatibility — 🟢 VERDE
-- 91 Local AI readiness — 🟢 VERDE
-- 92 External action guard — 🟢 VERDE
-- 93 Action audit — 🟢 VERDE
-- 94 Portability package — 🟢 VERDE
-- 95 Multidevice quorum — 🟢 VERDE
-- 96 Decentralization readiness — 🟢 VERDE
-- 97 Chaos validation — 🟢 VERDE
-- 98 Performance budgets — 🟢 VERDE
-- 99 Acceptance ledger — 🟢 VERDE
-- 100 NEXO readiness — 🟢 VERDE
+Nunca se deriva un GREEN runtime a partir de documentación, código, un test histórico, intención de despliegue o existencia del módulo.
 
-**Cobertura:** 40/40 secciones verdes.
+## Matriz actual
 
-## Gate
+| Secciones | Contractual | Runtime |
+|---|---|---|
+| 61-72 | 🟢 GREEN (12/12) | — N/A |
+| 73-100 | 🟢 GREEN (28/28) | 🔵 BLUE (28/28) |
+| Total | 🟢 GREEN (40/40) | 🟢 GREEN (0/40) · 🔵 BLUE (28/40) · N/A (12/40) |
 
-`src/nexo/phases_61_100.py` contiene la matriz única. `tests/test_phases_61_100.py` valida cobertura, ausencia de rojo, límites y estados azules. CI ejecuta un gate específico 61-100 y el `final` gate exige su éxito.
+### Secciones 61-72
 
-## Azul explícito
+Son la capa de gobierno, aceptación y reglas de ingeniería. Su estado runtime es **N/A** porque no representan funcionalidades desplegadas.
 
-El marco evita falsos verdes y mantiene como 🔵 AZUL las capacidades que necesitan infraestructura/runtime adicional: IA local real, export/import completo de usuario, acciones externas reales, portabilidad completa, descentralización completa y sincronización de peer sin pendientes.
+### Secciones 73-100
 
-## Regla
+Todas tienen contrato y automatización GREEN, pero actualmente permanecen **RUNTIME BLUE** hasta que la certificación live actual produzca evidencia específica para cada capacidad.
 
-Un contrato verde significa que el requisito está definido, aislado y automatizado. No significa que una capacidad externa esté productivamente realizada. Para promoción funcional se exige contrato + tests + PASS + commit + SHA desplegado + runtime + recovery.
+Esto incluye, entre otras, seguridad sensible, export/import, replicación, failover, SSE, deployment provenance, local AI, acciones externas, portabilidad, multidevice, descentralización, chaos y performance.
+
+## Capacidades que NO están cerradas en runtime
+
+- REAL_LOCAL_LLM
+- USER_EXPORT_IMPORT_ROUNDTRIP
+- REAL_EXTERNAL_ACTIONS
+- FULL_PORTABILITY
+- FULL_DECENTRALIZATION
+- PEER_REPLICATION_QUIESCED
+
+Estas capacidades sí tienen contrato (`*_CONTRACT`), pero ninguna está declarada cerrada operacionalmente en este ciclo.
+
+## Gate CI
+
+`src/nexo/phases_61_100.py` contiene la única matriz de verdad.
+
+`tests/test_phases_61_100.py` verifica:
+
+- cobertura exacta 61-100;
+- contractual GREEN completo;
+- runtime GREEN = 0 mientras no exista evidencia actual;
+- runtime BLUE explícito para 73-100;
+- ausencia de RED;
+- separación serializada entre ambos ejes.
+
+El workflow de C-33 ejecuta este gate como **cierre contractual**, no como certificación runtime de capacidades.
+
+## Promoción runtime
+
+Una sección solo puede pasar de RUNTIME BLUE a RUNTIME GREEN cuando exista evidencia actual y reproducible de:
+
+`contrato + tests + PASS + commit identificable + SHA desplegado coincidente + ejecución runtime + recovery cuando corresponda`.
+
+El cambio de estado debe ser explícito en la matriz y en la evidencia del release.
+
+## Regla de cierre
+
+**Código existente ≠ capacidad completada.**
+
+**Contrato GREEN ≠ runtime GREEN.**
+
+La certificación final de C-33 no debe utilizar el color GREEN contractual para ocultar una capacidad runtime no observada.
