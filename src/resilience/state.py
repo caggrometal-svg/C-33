@@ -141,6 +141,7 @@ class PostgresState:
     def __init__(self, pool: asyncpg.Pool, *, schema: str = "public") -> None:
         self.pool = pool
         self.schema = schema
+        self.process_started_at = datetime.now(timezone.utc)
 
     async def initialize(self) -> None:
         async with self.pool.acquire() as conn:
@@ -357,7 +358,7 @@ class PostgresState:
                     provider_id,
                 )
                 row = await conn.fetchrow(
-                    "SELECT state,cooldown_until,half_open_inflight FROM c33_circuit_breakers "
+                    "SELECT state,cooldown_until,half_open_inflight,last_failure_at FROM c33_circuit_breakers "
                     "WHERE provider_id=$1 FOR UPDATE",
                     provider_id,
                 )
@@ -367,6 +368,18 @@ class PostgresState:
                 if state == "CLOSED":
                     return CircuitDecision(True, state, 0)
                 if state == "OPEN" and cooldown_until and cooldown_until > now:
+                    last_failure_at = row["last_failure_at"]
+                    # Re-probe circuits opened by a previous process after a
+                    # fresh deployment; retain normal cooldowns for failures
+                    # that occurred in the current process.
+                    if last_failure_at and last_failure_at < self.process_started_at:
+                        await conn.execute(
+                            "UPDATE c33_circuit_breakers "
+                            "SET state='HALF_OPEN',half_open_inflight=TRUE,updated_at=now() "
+                            "WHERE provider_id=$1",
+                            provider_id,
+                        )
+                        return CircuitDecision(True, "HALF_OPEN", 0)
                     remaining = max(0, int((cooldown_until - now).total_seconds() * 1000))
                     return CircuitDecision(False, state, remaining)
                 if state == "OPEN":
