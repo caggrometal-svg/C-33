@@ -664,8 +664,7 @@ jobs:
               }
               return key, public
 
-          def session(base):
-              key, public = make_identity()
+          def session(base, key, public):
               challenge = httpx.post(base + "/v1/auth/challenge", timeout=10)
               if challenge.status_code != 200:
                   raise SystemExit(f"auth challenge failed on {base}: {challenge.status_code} {challenge.text}")
@@ -694,7 +693,8 @@ jobs:
                   "identity": identity,
               }
 
-          railway_auth = session(railway)
+          identity_key, identity_public = make_identity()
+          railway_auth = session(railway, identity_key, identity_public)
           request_id = "sse-recovery-" + uuid.uuid4().hex
           conversation_id = "sse-recovery-conv-" + uuid.uuid4().hex
           payload = {
@@ -769,10 +769,12 @@ jobs:
               print(json.dumps({"request_id": request_id, "recovery_backend": "Railway", "replayed": True}))
               raise SystemExit(0)
 
-          deplexo_auth = session(deplexo)
+          deplexo_auth = session(deplexo, identity_key, identity_public)
+          if deplexo_auth["identity"] != railway_auth["identity"]:
+              raise SystemExit("cross-backend identity mismatch")
           deplexo_payload = {
               **payload,
-              "user_id": deplexo_auth["identity"],
+              "user_id": railway_auth["identity"],
               "stream": False,
           }
           response = httpx.post(
