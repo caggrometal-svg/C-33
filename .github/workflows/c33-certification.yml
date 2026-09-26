@@ -294,9 +294,24 @@ jobs:
           if not health_data:
               raise SystemExit("Railway did not expose the expected certified SHA within 180s")
 
-          ready = httpx.get(base + "/ready", timeout=10)
-          if ready.status_code != 200:
-              raise SystemExit(f"/ready failed: {ready.status_code} {ready.text}")
+          ready_deadline = time.time() + 120
+          ready = None
+          last_ready = None
+          while time.time() < ready_deadline:
+              try:
+                  response = httpx.get(base + "/ready", timeout=10, headers={"Cache-Control":"no-cache"})
+                  last_ready = response
+                  if response.status_code == 200:
+                      ready = response
+                      break
+              except httpx.RequestError:
+                  pass
+              time.sleep(2)
+
+          if ready is None:
+              if last_ready is not None:
+                  raise SystemExit(f"/ready failed after startup convergence window: {last_ready.status_code} {last_ready.text}")
+              raise SystemExit("/ready failed: no response after startup convergence window")
 
           payload = {
               "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
