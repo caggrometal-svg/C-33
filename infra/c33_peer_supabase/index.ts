@@ -11,17 +11,28 @@ const hmac256=async(secret,bytes)=>{
 };
 const equalConst=(a,b)=>{if(!a||!b||a.length!==b.length)return false;let d=0;for(let i=0;i<a.length;i++)d|=a.charCodeAt(i)^b.charCodeAt(i);return d===0};
 const response=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
+const PAGE_SIZE=500;
 const integrity=async(db)=>{
-  const {data,error}=await db.from(TABLE).select("id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at").order("id",{ascending:true}).range(0,4999);
-  if(error)throw new Error("integrity_query_failed:"+error.message);
-  const rows=data??[], ids=[], msgs=[];
-  for(const row of rows){
-    const id=String(row.id); ids.push(encoder.encode(id),encoder.encode("\n"));
-    const record={id,conversation_id:String(row.conversation_id),user_id:String(row.user_id),seq:Number(row.seq),role:String(row.role),content:String(row.content),metadata:row.metadata&&typeof row.metadata==="object"?row.metadata:{},request_id:row.request_id==null?null:String(row.request_id),created_at:String(row.created_at)};
-    msgs.push(encoder.encode(JSON.stringify(canonical(record))),encoder.encode("\n"));
+  const ids=[], msgs=[];
+  let total=0;
+  const seenIds=new Set();
+  for(let offset=0;;offset+=PAGE_SIZE){
+    const {data,error}=await db.from(TABLE).select("id,conversation_id,user_id,seq,role,content,metadata,request_id,created_at").order("id",{ascending:true}).range(offset,offset+PAGE_SIZE-1);
+    if(error)throw new Error("integrity_query_failed:"+error.message);
+    const rows=data??[];
+    for(const row of rows){
+      const id=String(row.id);
+      if(seenIds.has(id))throw new Error("integrity_duplicate_id:"+id);
+      seenIds.add(id);
+      ids.push(encoder.encode(id),encoder.encode("\n"));
+      const record={id,conversation_id:String(row.conversation_id),user_id:String(row.user_id),seq:Number(row.seq),role:String(row.role),content:String(row.content),metadata:row.metadata&&typeof row.metadata==="object"?row.metadata:{},request_id:row.request_id==null?null:String(row.request_id),created_at:String(row.created_at)};
+      msgs.push(encoder.encode(JSON.stringify(canonical(record))),encoder.encode("\n"));
+      total++;
+    }
+    if(rows.length<PAGE_SIZE)break;
   }
   const join=(parts)=>{const n=parts.reduce((a,p)=>a+p.length,0),o=new Uint8Array(n);let i=0;for(const p of parts){o.set(p,i);i+=p.length}return o};
-  return {total_messages:rows.length,unique_message_ids:new Set(rows.map(r=>String(r.id))).size,message_id_digest:await sha256(join(ids)),message_digest:await sha256(join(msgs))};
+  return {total_messages:total,unique_message_ids:seenIds.size,message_id_digest:await sha256(join(ids)),message_digest:await sha256(join(msgs))};
 };
 export default {fetch:withSupabase({auth:"none"},async(req,ctx)=>{
   const path=new URL(req.url).pathname, db=ctx.supabaseAdmin.schema(SCHEMA);
