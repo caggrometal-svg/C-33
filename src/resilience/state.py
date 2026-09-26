@@ -516,21 +516,27 @@ class PostgresState:
         return [self._row_to_message(r) for r in rows]
 
     async def mark_replication_result(self, message_id: str, *, ok: bool, error: str = "") -> None:
-        if ok:
-            async with self.pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE c33_replication_outbox SET synced_at=now(),last_error=NULL WHERE message_id=$1",
-                    uuid.UUID(message_id),
-                )
+        await self.mark_replication_batch_result([message_id], ok=ok, error=error)
+
+    async def mark_replication_batch_result(self, message_ids: list[str], *, ok: bool, error: str = "") -> None:
+        if not message_ids:
             return
+        ids = [uuid.UUID(message_id) for message_id in message_ids]
         async with self.pool.acquire() as conn:
+            if ok:
+                await conn.execute(
+                    "UPDATE c33_replication_outbox SET synced_at=now(),attempts=0,last_error=NULL "
+                    "WHERE message_id = ANY($1::uuid[])",
+                    ids,
+                )
+                return
             await conn.execute(
                 "UPDATE c33_replication_outbox SET attempts=attempts+1, "
                 "next_attempt_at=now()+make_interval(secs => LEAST(300, GREATEST(2, (2 ^ LEAST(attempts+1,8))) + $2)),"
-                "last_error=$1 WHERE message_id=$3",
+                "last_error=$1 WHERE message_id = ANY($3::uuid[])",
                 error[:500],
                 random.random(),
-                uuid.UUID(message_id),
+                ids,
             )
 
     async def replicate_batch(
@@ -611,14 +617,19 @@ class PostgresState:
                 exc.__class__.__name__,
                 exc,
             )
-            for message in messages:
-                await self.mark_replication_result(message.message_id, ok=False, error=str(exc))
-                fail_count += 1
+            await self.mark_replication_batch_result(
+                [message.message_id for message in messages],
+                ok=False,
+                error=str(exc),
+            )
+            fail_count = len(messages)
             return ok_count, fail_count
 
-        for message in messages:
-            await self.mark_replication_result(message.message_id, ok=True)
-            ok_count += 1
+        await self.mark_replication_batch_result(
+            [message.message_id for message in messages],
+            ok=True,
+        )
+        ok_count = len(messages)
         return ok_count, fail_count
 
     async def import_replication_batch(self, messages: list[dict[str, Any]], *, enqueue_replication: bool = False) -> int:
