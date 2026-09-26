@@ -65,6 +65,11 @@ class FaultTransport(httpx.AsyncBaseTransport):
         return httpx.Response(200, json={"choices":[{"message":{"content":"C33_OK"}}]}, request=request)
 
 class ResilienceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_replication_import_processes_all_supplied_messages(self):
+        source = __import__("inspect").getsource(PostgresState.import_replication_batch)
+        self.assertIn("for item in messages:", source)
+        self.assertNotIn("for item in messages[:100]:", source)
+
     async def test_replication_import_enforces_message_size_limits(self):
         source = __import__("inspect").getsource(PostgresState.import_replication_batch)
         self.assertIn("_MAX_REPLICATION_TEXT_CHARS", source)
