@@ -516,7 +516,7 @@ class ResilienceTests(unittest.IsolatedAsyncioTestCase):
                 os.environ.pop(key, None)
             cascade = ProviderCascade.from_environment(FakeState())
             self.assertEqual(len(cascade.providers), 2)
-            self.assertEqual([p.timeout_ms for p in cascade.providers], [5000, 5000])
+            self.assertEqual([p.timeout_ms for p in cascade.providers], [9000, 9000])
             self.assertEqual(len(set(p.failure_domain for p in cascade.providers)), 2)
             self.assertEqual([p.provider_id for p in cascade.providers], ["kilo", "vireonix"])
             self.assertEqual([p.model for p in cascade.providers], ["kilo-auto/free", "auto"])
