@@ -33,6 +33,54 @@ def public_jwk(key) -> dict[str, str]:
     }
 
 
+
+
+class _FakeConnection:
+    def __init__(self):
+        self.calls = []
+
+    async def fetch(self, query, *args):
+        self.calls.append((query, args))
+        if len(args) >= 2 and args[1] == "identity-a":
+            return [{"role": "user", "content": "A private message"}]
+        return []
+
+    async def fetchrow(self, query, *args):
+        self.calls.append((query, args))
+        if len(args) >= 3 and args[2] == "identity-a":
+            return {
+                "id": "00000000-0000-0000-0000-000000000001",
+                "conversation_id": "conversation-1",
+                "user_id": "identity-a",
+                "seq": 1,
+                "role": "assistant",
+                "content": "A private reply",
+                "metadata": {},
+                "request_id": "request-1",
+                "created_at": datetime.now(timezone.utc),
+            }
+        return None
+
+
+class _FakeAcquire:
+    def __init__(self, connection):
+        self.connection = connection
+
+    async def __aenter__(self):
+        return self.connection
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _FakePool:
+    def __init__(self):
+        self.connection = _FakeConnection()
+
+    def acquire(self):
+        return _FakeAcquire(self.connection)
+
+
 class IdentityAuthTests(unittest.TestCase):
     SECRET = ("A" * 48, "B" * 48)
 
@@ -99,6 +147,25 @@ class IdentityAuthTests(unittest.TestCase):
         tampered = encoded + "." + replacement + signature[1:]
         with self.assertRaises(IdentityAuthError):
             verify_session(tampered, self.SECRET)
+
+
+    async def test_storage_queries_are_identity_scoped(self):
+        pool = _FakePool()
+        state = PostgresState(pool)
+
+        context_a = await state.conversation_context("conversation-1", "identity-a", limit=12)
+        context_b = await state.conversation_context("conversation-1", "identity-b", limit=12)
+        replay_a = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-a")
+        replay_b = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-b")
+
+        self.assertEqual(context_a[0]["content"], "A private message")
+        self.assertEqual(context_b, [])
+        self.assertIsNotNone(replay_a)
+        self.assertIsNone(replay_b)
+
+        queries = [query for query, _ in pool.connection.calls]
+        self.assertTrue(any("user_id=$2" in query for query in queries))
+        self.assertTrue(any("user_id=$3" in query for query in queries))
 
     def test_identity_is_deterministic_per_public_key(self):
         self.assertEqual(
