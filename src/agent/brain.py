@@ -134,7 +134,7 @@ class Brain:
         prompt = prompt.strip()
         if not prompt:
             raise ValueError("Prompt cannot be empty")
-        history = await self.state.conversation_context(conversation_id, limit=12)
+        history = await self.state.conversation_context(conversation_id, user_id, limit=12)
         cache_key = f"memory:{user_id}:{prompt.lower()[:512]}"
         memory_hits = self.cache.get(cache_key)
         if memory_hits is None:
