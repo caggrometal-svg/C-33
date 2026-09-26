@@ -24,5 +24,14 @@ class ExportQueryContractTests(unittest.TestCase):
         self.assertIn("LIMIT $3", query)
 
 
+    def test_chat_recovery_replay_is_identity_scoped_and_replay_only(self):
+        from pathlib import Path
+        api_source = (Path(__file__).resolve().parents[1] / "src" / "api.py").read_text(encoding="utf-8")
+        self.assertIn("effective_payload.user_id", api_source)
+        self.assertIn('stored_meta["replayed"] = True', api_source)
+        self.assertIn('X-C33-Replay-Only', api_source)
+        self.assertIn('request_not_replayable', api_source)
+
+
 if __name__ == "__main__":
     unittest.main()
