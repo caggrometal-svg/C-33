@@ -149,10 +149,16 @@ jobs:
           sys.path.insert(0, "src")
           from nexo.phases_61_100 import Nexo61To100
           assert Nexo61To100.validate()
-          assert Nexo61To100.green_sections() == tuple(range(61, 101))
+          assert Nexo61To100.contract_green_sections() == tuple(range(61, 101))
+          assert Nexo61To100.runtime_green_sections() == ()
+          assert Nexo61To100.runtime_blue_sections() == tuple(range(73, 101))
+          assert Nexo61To100.not_applicable_runtime_sections() == tuple(range(61, 73))
           assert not Nexo61To100.has_red()
-          print("NEXO 61-100 CLOSURE GREEN")
-          print("GREEN SECTIONS:", ",".join(map(str, Nexo61To100.green_sections())))
+          print("NEXO 61-100 CONTRACT MATRIX GREEN")
+          print("CONTRACT GREEN:", ",".join(map(str, Nexo61To100.contract_green_sections())))
+          print("RUNTIME GREEN:", ",".join(map(str, Nexo61To100.runtime_green_sections())))
+          print("RUNTIME BLUE:", ",".join(map(str, Nexo61To100.runtime_blue_sections())))
+          print("RUNTIME N/A:", ",".join(map(str, Nexo61To100.not_applicable_runtime_sections())))
           print("BLUE CAPABILITIES:", ",".join(Nexo61To100.blue_capabilities()))
           PY
 
@@ -715,4 +721,5 @@ jobs:
           test "$SIX_RUNTIME_RESULT" = success
           echo "C-33 FINAL MATRIX GREEN"
           echo "NEXO 41-60 CLOSURE GREEN"
-          echo "NEXO 61-100 CLOSURE GREEN"
+          echo "NEXO 61-100 CONTRACT MATRIX GREEN"
+          echo "NEXO 61-100 RUNTIME CLAIMS REQUIRE FRESH EVIDENCE"
