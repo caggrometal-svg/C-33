@@ -461,6 +461,25 @@ async def ready() -> ReadyResponse:
         )
     if cascade is None:
         raise HTTPException(status_code=503, detail={"status":"not_ready","reason":"ai_runtime_unavailable"})
+    if config.environment == "production" and pending != 0 and config.peer_url and peer == "ONLINE":
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=httpx.Timeout(2.0, connect=0.8)) as client:
+                proof_response = await client.get(config.peer_url.rstrip("/") + "/v1/replication/status", headers={"Cache-Control":"no-cache"})
+            proof = proof_response.json() if proof_response.status_code == 200 else {}
+            proof_matches = (
+                proof_response.status_code == 200
+                and int(proof.get("total_messages", -1)) == int(integrity.get("total_messages", -2))
+                and int(proof.get("unique_message_ids", -1)) == int(integrity.get("unique_message_ids", -2))
+                and str(proof.get("message_id_digest", "")) == str(integrity.get("message_id_digest", ""))
+                and str(proof.get("message_digest", "")) == str(integrity.get("message_digest", ""))
+            )
+            if proof_matches:
+                await state.mark_all_replication_synced()
+                pending = 0
+                logger.info("[NEXO_REPLICATION_RECONCILED] live_integrity_match=true pending=0")
+        except Exception as exc:
+            logger.debug("[NEXO_REPLICATION_RECONCILE_SKIP] type=%s detail=%s", exc.__class__.__name__, str(exc)[:200])
     if config.environment == "production" and (pending != 0 or peer != "ONLINE"):
         raise HTTPException(
             status_code=503,
