@@ -45,11 +45,17 @@ jobs:
           imported_user = "github-import-replay-" + uuid.uuid4().hex[:12]
           imported_conversation = "import-replay-" + uuid.uuid4().hex
           messages = []
+          conversation_map = {}
           for message in bundle.get("messages", []):
               copy_message = copy.deepcopy(message)
+              source_conversation = str(copy_message.get("conversation_id") or "default")
+              target_conversation = conversation_map.setdefault(
+                  source_conversation,
+                  imported_conversation + "-" + uuid.uuid5(uuid.NAMESPACE_URL, source_conversation).hex[:12],
+              )
               copy_message["id"] = str(uuid.uuid4())
               copy_message["user_id"] = imported_user
-              copy_message["conversation_id"] = imported_conversation
+              copy_message["conversation_id"] = target_conversation
               messages.append(copy_message)
           migrated = dict(bundle)
           migrated["user_id"] = imported_user
