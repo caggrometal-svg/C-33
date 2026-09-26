@@ -36,5 +36,6 @@ jobs:
           tags: |
             ghcr.io/caggrometal-svg/c33-backend:latest
             ghcr.io/caggrometal-svg/c33-backend:${{ github.sha }}
-            ghcr.io/caggrometal-svg/iac33-backend:latest
-            ghcr.io/caggrometal-svg/iac33-backend:${{ github.sha }}
+
+          build-args: |
+            C33_BUILD_SHA=${{ github.sha }}
