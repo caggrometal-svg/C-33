@@ -179,3 +179,50 @@ jobs:
 
           asyncio.run(main())
           PY
+
+  production-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: ai-provider-live
+    steps:
+      - name: Verify Railway liveness
+        run: |
+          set -euo pipefail
+          BASE="https://iac33-backup-production.up.railway.app"
+          body="$(curl --fail-with-body --silent --show-error --max-time 15 "$BASE/health")"
+          echo "$body"
+          python - "$body" <<'PY'
+          import json, sys
+          data=json.loads(sys.argv[1])
+          assert data.get("status") == "alive"
+          assert data.get("service") == "C-33"
+          print({"status":"PASS","test":"production_health"})
+          PY
+
+      - name: Verify Railway AI generation
+        run: |
+          set -euo pipefail
+          BASE="https://iac33-backup-production.up.railway.app"
+          payload='{"message":"Reply exactly C33_PRODUCTION_AI_OK","user_id":"ci","conversation_id":"ci-production-ai","request_id":"ci-production-ai-001","stream":false,"personality":"base","voice_tone":"neutral"}'
+          response="$(curl --fail-with-body --silent --show-error --max-time 35             -H "Content-Type: application/json"             -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))"             -d "$payload" "$BASE/v1/chat")"
+          echo "$response"
+          python - "$response" <<'PY'
+          import json, sys
+          data=json.loads(sys.argv[1])
+          assert data.get("status") == "ok", data
+          assert data.get("synthesis", "").strip(), data
+          meta=data.get("_meta") or {}
+          assert meta.get("used_local_fallback") is False, data
+          provider=meta.get("provider_used")
+          assert provider in {"kilo","vireonix","pollinations"}, data
+          assert int(meta.get("provider_attempts", 0)) >= 1, data
+          print({
+              "status":"PASS",
+              "test":"production_ai_generation",
+              "provider_used":provider,
+              "provider_attempts":meta.get("provider_attempts"),
+              "failover_triggered":meta.get("failover_triggered"),
+              "final_reason":meta.get("final_reason"),
+              "latency_ms":meta.get("latency_ms"),
+          })
+          PY
