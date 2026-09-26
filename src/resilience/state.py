@@ -496,6 +496,15 @@ class PostgresState:
                 "SET synced_at=NULL, attempts=0, next_attempt_at=now(), last_error=NULL"
             )
 
+    async def mark_all_replication_synced(self) -> None:
+        """Close stale outbox rows only after peer integrity proof matches the durable dataset."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE c33_replication_outbox o SET synced_at=now(), attempts=0, last_error=NULL "
+                "WHERE o.synced_at IS NULL AND EXISTS "
+                "(SELECT 1 FROM c33_messages m WHERE m.id=o.message_id)"
+            )
+
     async def pending_replication(self, limit: int = 20) -> list[ReplicationMessage]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
