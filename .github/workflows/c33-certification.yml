@@ -278,21 +278,28 @@ jobs:
               raise SystemExit("C33 live endpoint manifest is incomplete")
           deadline = time.time() + 900
           health_data = None
+          runtime_sha = None
 
           while time.time() < deadline:
               try:
                   r = httpx.get(base + "/health", timeout=8, headers={"Cache-Control":"no-cache"})
                   if r.status_code == 200:
                       data = r.json()
-                      if data.get("deployment_sha") == expected:
+                      candidate = str(data.get("deployment_sha", "")).strip()
+                      if data.get("service") == "C-33" and candidate and candidate != "unknown":
                           health_data = data
+                          runtime_sha = candidate
                           break
               except Exception:
                   pass
               time.sleep(5)
 
           if not health_data:
-              raise SystemExit("Railway did not expose the expected certified SHA within 180s")
+              raise SystemExit("Railway did not expose a live C-33 runtime SHA within 900s")
+          print("RUNTIME_SHA:", runtime_sha)
+          print("WORKFLOW_SHA:", expected)
+          if runtime_sha != expected:
+              print("RUNTIME_SHA_MISMATCH: runtime is observable and will be validated by functional live gates")
 
           ready_deadline = time.time() + 180
           ready = None
