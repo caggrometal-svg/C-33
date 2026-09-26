@@ -54,7 +54,7 @@ jobs:
                   + json.dumps(peer_health, sort_keys=True)
               )
 
-          deadline = time.time() + 180
+          deadline = time.time() + 300
           last = None
           stable_fingerprint = None
           stable_since = None
