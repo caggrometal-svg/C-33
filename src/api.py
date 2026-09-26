@@ -46,7 +46,7 @@ replication_task: asyncio.Task[None] | None = None
 remote_ai_ready: tuple[float, dict[str, Any]] | None = None
 logger = logging.getLogger("nexo.c33")
 metrics = RequestMetrics()
-READINESS_PROBE_TIMEOUT_SECONDS = 3.0
+READINESS_PROBE_TIMEOUT_SECONDS = 6.0
 _MAX_EXPORT_MESSAGES = 5000
 _MAX_IMPORT_MESSAGES = 5000
 
