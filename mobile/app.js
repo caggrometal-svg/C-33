@@ -22,6 +22,7 @@ const IDENTITY_PRIVATE_KEY = "C33_IDENTITY_PRIVATE_JWK";
 const SESSION_TOKEN_KEY = "C33_IDENTITY_SESSION";
 const SESSION_EXPIRES_KEY = "C33_IDENTITY_SESSION_EXPIRES";
 const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V2";
+const LEGACY_DIAGNOSTIC_KEYS = ["C33_REMOTE_DIAGNOSTICS_V1"];
 const MAX_DIAGNOSTICS = 20;
 const MAX_DIAGNOSTIC_REPORT = 10;
 const CONFIG_VERSION = String(C.CONFIG_VERSION || "bundled-fallback");
@@ -139,6 +140,7 @@ function compactDiagnosticsStorage() {
     const compacted = readDiagnostics();
     if (compacted.length) localStorage.setItem(DIAGNOSTIC_KEY, JSON.stringify(compacted));
     else localStorage.removeItem(DIAGNOSTIC_KEY);
+    for (const legacyKey of LEGACY_DIAGNOSTIC_KEYS) localStorage.removeItem(legacyKey);
   } catch {}
 }
 
