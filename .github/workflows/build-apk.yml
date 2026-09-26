@@ -1,4 +1,5 @@
 name: NEXO Android APK
+# Remote-circuit recovery build
 # C-33 0.1.6 production APK build gate
 
 on:
