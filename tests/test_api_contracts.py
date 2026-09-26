@@ -1,4 +1,7 @@
+import os
 import unittest
+
+os.environ.setdefault("PORT", "8080")
 
 
 class ExportQueryContractTests(unittest.TestCase):
