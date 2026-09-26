@@ -623,6 +623,186 @@ jobs:
           }, ensure_ascii=False, indent=2))
           PY
 
+
+  sse_replay_recovery:
+    name: Android resilience SSE replay / Railway / Deplexo
+    needs: [backend, mobile]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx cryptography
+      - name: Verify interrupted SSE recovery chain
+        run: |
+          python - <<'PY'
+          import base64
+          import json
+          import time
+          import uuid
+          import httpx
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.asymmetric import ec
+          from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+
+          endpoints = json.load(open("infra/c33-endpoints.json", encoding="utf-8"))
+          railway = str(endpoints["production"]).rstrip("/")
+          deplexo = str(endpoints["runtime_backup"]).rstrip("/")
+
+          def b64url(data):
+              return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+          def make_identity():
+              key = ec.generate_private_key(ec.SECP256R1())
+              nums = key.public_key().public_numbers()
+              public = {
+                  "kty": "EC",
+                  "crv": "P-256",
+                  "x": b64url(nums.x.to_bytes(32, "big")),
+                  "y": b64url(nums.y.to_bytes(32, "big")),
+              }
+              return key, public
+
+          def session(base):
+              key, public = make_identity()
+              challenge = httpx.post(base + "/v1/auth/challenge", timeout=10)
+              if challenge.status_code != 200:
+                  raise SystemExit(f"auth challenge failed on {base}: {challenge.status_code} {challenge.text}")
+              challenge_value = challenge.json().get("challenge", "")
+              der = key.sign(challenge_value.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+              r, s = decode_dss_signature(der)
+              raw = r.to_bytes(32, "big") + s.to_bytes(32, "big")
+              response = httpx.post(
+                  base + "/v1/auth/session",
+                  json={
+                      "challenge": challenge_value,
+                      "device_id": "github-sse-recovery",
+                      "public_key": public,
+                      "signature": b64url(raw),
+                  },
+                  timeout=10,
+              )
+              if response.status_code != 200:
+                  raise SystemExit(f"auth session failed on {base}: {response.status_code} {response.text}")
+              token = response.json().get("session_token", "")
+              identity = response.json().get("identity_id", "")
+              if not token or not identity:
+                  raise SystemExit("incomplete authentication session")
+              return {
+                  "Authorization": "Bearer " + token,
+                  "identity": identity,
+              }
+
+          railway_auth = session(railway)
+          request_id = "sse-recovery-" + uuid.uuid4().hex
+          conversation_id = "sse-recovery-conv-" + uuid.uuid4().hex
+          payload = {
+              "message": "Reply briefly with C33_INTERRUPTED_SSE_OK.",
+              "user_id": railway_auth["identity"],
+              "conversation_id": conversation_id,
+              "request_id": request_id,
+              "stream": True,
+          }
+
+          saw_token = False
+          with httpx.stream(
+              "POST",
+              railway + "/v1/ai/stream",
+              json=payload,
+              headers={
+                  **railway_auth,
+                  "Accept": "text/event-stream",
+                  "X-C33-Allow-Local-Fallback": "false",
+                  "X-C33-Deadline-Epoch-Ms": str(int((time.time() + 20) * 1000)),
+              },
+              timeout=22,
+          ) as response:
+              if response.status_code != 200:
+                  raise SystemExit(f"initial Railway SSE failed: {response.status_code} {response.read().decode(errors='replace')}")
+              for line in response.iter_lines():
+                  if line.startswith("event: token"):
+                      saw_token = True
+                  if saw_token:
+                      break
+
+          if not saw_token:
+              raise SystemExit("SSE did not emit a token before interruption")
+          print("INTERRUPTED_SSE: PASS", request_id)
+
+          replay_deadline = time.time() + 8
+          replay_status = None
+          replay_data = None
+          while time.time() < replay_deadline:
+              response = httpx.post(
+                  railway + "/v1/chat",
+                  json={**payload, "stream": False},
+                  headers={
+                      **railway_auth,
+                      "Content-Type": "application/json",
+                      "X-C33-Replay-Only": "true",
+                      "X-C33-Recovery": "sse-request-id",
+                  },
+                  timeout=10,
+              )
+              replay_status = response.status_code
+              try:
+                  replay_data = response.json()
+              except ValueError:
+                  replay_data = None
+              if response.status_code == 200 and replay_data and replay_data.get("synthesis"):
+                  if replay_data.get("request_id") != request_id:
+                      raise SystemExit("Railway replay request_id mismatch")
+                  if replay_data.get("_meta", {}).get("replayed") is not True:
+                      raise SystemExit("Railway returned 200 without replayed=true")
+                  print("RAILWAY_REPLAY: PASS", request_id)
+                  break
+              if response.status_code != 409:
+                  raise SystemExit(f"unexpected Railway replay response: {response.status_code} {response.text}")
+              time.sleep(1)
+          else:
+              print("RAILWAY_REPLAY: NOT_AVAILABLE_AFTER_INTERRUPTION")
+              replay_data = None
+
+          if replay_data:
+              print("SSE_RECOVERY: Railway request_id replay completed")
+              print(json.dumps({"request_id": request_id, "recovery_backend": "Railway", "replayed": True}))
+              raise SystemExit(0)
+
+          deplexo_auth = session(deplexo)
+          deplexo_payload = {
+              **payload,
+              "user_id": deplexo_auth["identity"],
+              "stream": False,
+          }
+          response = httpx.post(
+              deplexo + "/v1/chat",
+              json=deplexo_payload,
+              headers={
+                  **deplexo_auth,
+                  "Content-Type": "application/json",
+                  "X-C33-Replay-Only": "false",
+                  "X-C33-Recovery": "sse-request-id",
+              },
+              timeout=20,
+          )
+          if response.status_code != 200:
+              raise SystemExit(f"Deplexo recovery failed: {response.status_code} {response.text}")
+          data = response.json()
+          if data.get("request_id") != request_id:
+              raise SystemExit(f"Deplexo recovery request_id mismatch: {data.get('request_id')!r} != {request_id!r}")
+          if not str(data.get("synthesis", "")).strip():
+              raise SystemExit("Deplexo recovery returned empty synthesis")
+
+          print("DEPLEXO_RECOVERY: PASS", request_id)
+          print(json.dumps({
+              "request_id": request_id,
+              "recovery_backend": "Deplexo",
+              "railway_replay_status": replay_status,
+              "replayed": bool(data.get("_meta", {}).get("replayed")),
+          }))
+          PY
+
   deplexo:
     name: Deplexo runtime connectivity
     needs: [backend, mobile]
@@ -694,7 +874,7 @@ jobs:
 
   final:
     name: C-33 final matrix gate
-    needs: [backend, mobile, android, live, deplexo, codeql, closure, closure_61_100, six_runtime_surfaces]
+    needs: [backend, mobile, android, live, deplexo, sse_replay_recovery, codeql, closure, closure_61_100, six_runtime_surfaces]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
