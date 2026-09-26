@@ -1,0 +1,93 @@
+name: C-33 AI Resilience Battery
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: c33-ai-resilience-battery-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ai-resilience-battery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime
+        run: python -m pip install -r requirements.txt
+
+      - name: Run AI resilience battery 1-5
+        run: python tests/test_ai_resilience_battery.py
+
+      - name: Real production smoke x5
+        env:
+          BASE: https://iac33-backup-production.up.railway.app
+        run: |
+          set -euo pipefail
+          success=0
+          failover=0
+          providers=""
+          for i in 1 2 3 4 5; do
+            request_id="c33-resilience-smoke-\${GITHUB_RUN_ID}-\${i}"
+            conversation_id="c33-resilience-smoke-\${GITHUB_RUN_ID}"
+            payload="$(python - "$request_id" "$conversation_id" <<'PY'
+          import json, sys
+          print(json.dumps({
+              "message": f"Reply exactly C33_REAL_SMOKE_OK_{sys.argv[1].split('-')[-1]}",
+              "user_id": "ci-resilience",
+              "conversation_id": sys.argv[2],
+              "request_id": sys.argv[1],
+              "stream": False,
+              "personality": "base",
+              "voice_tone": "neutral",
+          }))
+          PY
+          )"
+            response="$(curl --fail-with-body --silent --show-error --retry 3 --retry-delay 2 --retry-all-errors --max-time 35 \
+              -H "Content-Type: application/json" \
+              -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))" \
+              -d "$payload" "$BASE/v1/chat")"
+            echo "$response" > "response-\${i}.json"
+            python - "$response" "$i" <<'PY'
+          import json, sys
+          data=json.loads(sys.argv[1])
+          i=sys.argv[2]
+          assert data.get("status") == "ok", data
+          assert data.get("synthesis", "").strip(), data
+          meta=data.get("_meta") or {}
+          assert meta.get("used_local_fallback") is False, data
+          provider=meta.get("provider_used")
+          assert provider in {"kilo","vireonix","pollinations"}, data
+          assert int(meta.get("provider_attempts", 0)) >= 1, data
+          print({
+              "status":"PASS",
+              "iteration":int(i),
+              "provider_used":provider,
+              "provider_attempts":meta.get("provider_attempts"),
+              "failover_triggered":meta.get("failover_triggered"),
+              "latency_ms":meta.get("latency_ms"),
+          })
+          PY
+            success=$((success+1))
+            meta="$(python - "$response" <<'PY'
+          import json,sys
+          m=(json.loads(sys.argv[1]).get("_meta") or {})
+          print((m.get("provider_used") or "") + "|" + str(bool(m.get("failover_triggered"))))
+          PY
+          )"
+            providers="\${providers} \${meta%%|*}"
+            if [ "\${meta#*|}" = "True" ]; then failover=$((failover+1)); fi
+          done
+          echo "C33_REAL_SMOKE_OK success=$success/5 failover=$failover providers=$providers"
+          test "$success" -eq 5
