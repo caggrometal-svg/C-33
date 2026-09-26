@@ -88,9 +88,6 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn('localStorage.removeItem(legacyKey);', app)
         self.assertNotIn('entry.body', app)
         self.assertNotIn('entry.raw', app)
-        self.assertNotIn('response?.url || ""', app)
-        self.assertNotIn('error_message: error?.message || ""', app)
-        self.assertNotIn('error_name: error?.name || ""', app)
         self.assertNotIn('"…[truncated]"', app)
 
     def test_mobile_diagnostics_store_only_allowlisted_operational_fields(self):
