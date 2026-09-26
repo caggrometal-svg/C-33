@@ -183,7 +183,11 @@ class WebTool:
         }
 
     async def search(self, query: str) -> list[SearchResult]:
-        """Search DuckDuckGo HTML results without requiring a paid API key."""
+        """Search DuckDuckGo without requiring a paid API key.
+
+        The normal HTML endpoint is attempted first. If its markup is unavailable
+        or unparseable, DuckDuckGo Lite is used as a protocol-compatible fallback.
+        """
         query = query.strip()
         if not query:
             return []
@@ -192,41 +196,79 @@ class WebTool:
 
         query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()[:12]
         started = time.monotonic()
+        endpoints = (
+            ("html", "https://html.duckduckgo.com/html/", self._parse_search_results),
+            ("lite", "https://lite.duckduckgo.com/lite/", self._parse_lite_search_results),
+        )
+        failures: list[str] = []
         logger.info(
-            "[NEXO_DEBUG_WEB] search_begin query_hash=%s timeout_s=%.2f host=html.duckduckgo.com",
+            "[NEXO_DEBUG_WEB] search_begin query_hash=%s timeout_s=%.2f endpoints=html,lite",
             query_hash,
             self.timeout,
         )
-        try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                follow_redirects=True,
-                headers=self._headers,
-            ) as client:
-                response = await client.post(
-                    "https://html.duckduckgo.com/html/",
-                    data={"q": query},
-                )
-                response.raise_for_status()
-                results = self._parse_search_results(response.text)[: self.max_results]
-                if not results:
-                    raise RuntimeError("no_search_results_parsed")
-        except Exception as exc:
-            logger.warning(
-                "[NEXO_DEBUG_WEB] search_failed query_hash=%s error_class=%s latency_ms=%s",
-                query_hash,
-                type(exc).__name__,
-                int((time.monotonic() - started) * 1000),
-            )
-            raise
 
-        logger.info(
-            "[NEXO_DEBUG_WEB] search_success query_hash=%s status=%s results=%s latency_ms=%s",
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            follow_redirects=True,
+            headers=self._headers,
+        ) as client:
+            for endpoint_name, url, parser in endpoints:
+                for attempt in range(1, 3):
+                    try:
+                        response = (
+                            await client.post(url, data={"q": query})
+                            if endpoint_name == "html"
+                            else await client.get(url, params={"q": query})
+                        )
+                        response.raise_for_status()
+                        results = parser(response.text)[: self.max_results]
+                        if results:
+                            logger.info(
+                                "[NEXO_DEBUG_WEB] search_success query_hash=%s endpoint=%s attempt=%s status=%s results=%s latency_ms=%s",
+                                query_hash,
+                                endpoint_name,
+                                attempt,
+                                response.status_code,
+                                len(results),
+                                int((time.monotonic() - started) * 1000),
+                            )
+                            return results
+                        failures.append(f"{endpoint_name}:no_results")
+                    except Exception as exc:
+                        failures.append(f"{endpoint_name}:{type(exc).__name__}")
+                        logger.info(
+                            "[NEXO_DEBUG_WEB] search_attempt_failed query_hash=%s endpoint=%s attempt=%s error_class=%s",
+                            query_hash,
+                            endpoint_name,
+                            attempt,
+                            type(exc).__name__,
+                        )
+                    if attempt < 2:
+                        await asyncio.sleep(0.5 * attempt)
+
+        logger.warning(
+            "[NEXO_DEBUG_WEB] search_failed query_hash=%s failures=%s latency_ms=%s",
             query_hash,
-            response.status_code,
-            len(results),
+            ",".join(failures),
             int((time.monotonic() - started) * 1000),
         )
+        raise RuntimeError("no_search_results_parsed")
+
+    @staticmethod
+    def _parse_lite_search_results(html: str) -> list[SearchResult]:
+        import html as html_module
+
+        results: list[SearchResult] = []
+        pattern = re.compile(
+            r'<a[^>]*class=["\\']result-link["\\'][^>]*href=["\\']([^"\\']+)["\\'][^>]*>(.*?)</a>',
+            re.IGNORECASE | re.DOTALL,
+        )
+        for href, raw_title in pattern.findall(html):
+            title = html_module.unescape(re.sub(r"<[^>]+>", "", raw_title)).strip()
+            url = html_module.unescape(href).strip()
+            if not title or not url.startswith(("http://", "https://")):
+                continue
+            results.append(SearchResult(title=title, url=url, snippet=""))
         return results
 
     async def fetch(self, url: str) -> WebPage:
