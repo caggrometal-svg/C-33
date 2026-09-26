@@ -29,15 +29,30 @@ jobs:
           peer_host = (urlparse(peer_base).hostname or "").lower()
           if not base_host or not peer_host or base_host == peer_host:
               raise SystemExit(f"invalid_replication_topology: production={base_host!r} peer={peer_host!r}")
-          with urllib.request.urlopen(peer_base + "/health", timeout=10) as r:
-              peer_health = json.load(r)
+          def get_json(url, timeout=10, attempts=6, pause=2):
+              last_error = None
+              for attempt in range(attempts):
+                  try:
+                      with urllib.request.urlopen(url, timeout=timeout) as r:
+                          return json.load(r)
+                  except Exception as exc:
+                      last_error = exc
+                      if attempt + 1 < attempts:
+                          time.sleep(pause)
+              raise SystemExit(f"replication_probe_failed:{url}:{last_error}")
+
+          peer_health = get_json(peer_base + "/health", timeout=10, attempts=10, pause=2)
           if peer_health.get("status") != "alive" or peer_health.get("role") != "secondary":
               raise SystemExit("peer_is_not_a_live_secondary:" + json.dumps(peer_health, sort_keys=True))
           deadline = time.time() + 180
           last = None
           while time.time() < deadline:
-              with urllib.request.urlopen(base + "/v1/replication/status", timeout=10) as r:
-                  last = json.load(r)
+              try:
+                  last = get_json(base + "/v1/replication/status", timeout=10, attempts=2, pause=1)
+              except SystemExit as exc:
+                  last = {"probe_error": str(exc)}
+                  time.sleep(2)
+                  continue
               print(json.dumps(last, sort_keys=True), flush=True)
               if (
                   int(last.get("replication_pending", -1)) == 0
