@@ -78,7 +78,7 @@ jobs:
               ["primary", "backup", "last-resort"],
               transport=Transport(),
           )
-          assert DeadlineBudget(15_000).provider_timeout_ms(9_000) == 5_000
+          assert DeadlineBudget(15_000).provider_timeout_ms(9_000) == 9_000
           result = asyncio.run(
               cascade.complete(
                   [{"role": "user", "content": "Reply exactly C33_FAILOVER_OK"}],
