@@ -13,6 +13,24 @@ jobs:
     name: Portable import replay gate
     runs-on: ubuntu-latest
     steps:
+      - name: Wait for Railway to serve this commit
+        env:
+          BASE: https://iac33-backup-production.up.railway.app
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            payload="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "$BASE/v1/time" || true)"
+            deployment_sha="$(python -c 'import json,sys; print(json.loads(sys.stdin.read()).get("deployment_sha",""))' <<<"$payload" 2>/dev/null || true)"
+            if [ "$deployment_sha" = "${GITHUB_SHA}" ]; then
+              echo "Railway serving ${GITHUB_SHA}"
+              exit 0
+            fi
+            echo "Waiting for Railway deployment: attempt=$attempt observed_sha=$deployment_sha expected_sha=${GITHUB_SHA}"
+            sleep 2
+          done
+          echo "ERROR: Railway did not serve ${GITHUB_SHA} within 120 seconds"
+          exit 1
+
       - name: Export and re-import a real bundle
         env:
           BASE: https://iac33-backup-production.up.railway.app
