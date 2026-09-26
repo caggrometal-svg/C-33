@@ -761,41 +761,48 @@ class PostgresState:
         return accepted
 
     async def replication_integrity(self) -> dict[str, Any]:
-        """Return a privacy-preserving deterministic digest of the durable message set."""
+        """Return the same SQL-canonical digest used by the replication peer."""
         async with self.pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
-                "FROM c33_messages ORDER BY id"
+            row = await conn.fetchrow(
+                """
+                WITH ordered AS (
+                    SELECT
+                        id::text AS id,
+                        jsonb_build_object(
+                            'id', id,
+                            'conversation_id', conversation_id,
+                            'user_id', user_id,
+                            'seq', seq,
+                            'role', role,
+                            'content', content,
+                            'metadata', COALESCE(metadata, '{}'::jsonb),
+                            'request_id', request_id,
+                            'created_at', created_at
+                        )::text AS record_json
+                    FROM c33_messages
+                ),
+                aggregate_data AS (
+                    SELECT
+                        COUNT(*)::integer AS total_messages,
+                        COUNT(DISTINCT id)::integer AS unique_message_ids,
+                        COALESCE(string_agg(id || E'\\n', '' ORDER BY id::uuid), '') AS id_data,
+                        COALESCE(string_agg(record_json || E'\\n', '' ORDER BY id::uuid), '') AS message_data
+                    FROM ordered
+                )
+                SELECT
+                    total_messages,
+                    unique_message_ids,
+                    encode(digest(convert_to(id_data, 'UTF8'), 'sha256'), 'hex') AS message_id_digest,
+                    encode(digest(convert_to(message_data, 'UTF8'), 'sha256'), 'hex') AS message_digest
+                FROM aggregate_data
+                """
             )
-        digest = hashlib.sha256()
-        id_digest = hashlib.sha256()
-        unique_ids: set[str] = set()
-        for row in rows:
-            message_id = str(row["id"])
-            unique_ids.add(message_id)
-            id_digest.update(message_id.encode("utf-8"))
-            id_digest.update(b"\n")
-            record = {
-                "id": message_id,
-                "conversation_id": str(row["conversation_id"]),
-                "user_id": str(row["user_id"]),
-                "seq": int(row["seq"]),
-                "role": str(row["role"]),
-                "content": str(row["content"]),
-                "metadata": self._metadata_dict(row["metadata"]),
-                "request_id": str(row["request_id"]) if row["request_id"] is not None else None,
-                "created_at": row["created_at"].astimezone(timezone.utc).isoformat(),
-            }
-            canonical = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-            digest.update(canonical)
-            digest.update(b"\n")
         return {
-            "total_messages": len(rows),
-            "unique_message_ids": len(unique_ids),
-            "message_id_digest": id_digest.hexdigest(),
-            "message_digest": digest.hexdigest(),
+            "total_messages": int(row["total_messages"]),
+            "unique_message_ids": int(row["unique_message_ids"]),
+            "message_id_digest": str(row["message_id_digest"]),
+            "message_digest": str(row["message_digest"]),
         }
-
     async def replication_pending_count(self) -> int:
         async with self.pool.acquire() as conn:
             return int(await conn.fetchval("SELECT COUNT(*) FROM c33_replication_outbox WHERE synced_at IS NULL"))
