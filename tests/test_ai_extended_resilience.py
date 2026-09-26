@@ -57,7 +57,7 @@ async def test_all_providers_down() -> None:
         )
     except GenerationFailure as exc:
         assert exc.http_status == 502, exc
-        assert exc.reason == "provider_5xx", exc
+        assert exc.reason == "providers_exhausted", exc
         assert len(exc.attempts) == 3, exc
         assert all(item["reason"] == "provider_5xx" for item in exc.attempts), exc
         print({
