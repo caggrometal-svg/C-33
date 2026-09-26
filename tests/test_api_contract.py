@@ -106,6 +106,8 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn('cascade.assert_ready_configuration()', ready)
         self.assertNotIn('cascade.complete(', ready)
         self.assertIn('peer_replication_secret_missing', ready)
+        self.assertIn('replication_peer_unavailable', ready)
+        self.assertNotIn('reason":"replication_not_quiesced', ready)
 
     def test_health_is_pure_liveness_contract(self):
         health = self.api.split('@app.get("/health")', 1)[1].split('@app.get("/ready"', 1)[0]
