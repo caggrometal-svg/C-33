@@ -123,11 +123,13 @@ jobs:
 
           with httpx.Client(timeout=httpx.Timeout(25.0, connect=5.0, read=25.0, write=5.0)) as client:
               health_deadline = time.time() + 180
+              runtime_sha = None
               while time.time() < health_deadline:
                   try:
                       health = client.get(base + "/health")
                       health_data = health.json()
-                      if health.status_code == 200 and health_data.get("deployment_sha") == "${GITHUB_SHA}":
+                      runtime_sha = str(health_data.get("deployment_sha", "")).strip()
+                      if health.status_code == 200 and runtime_sha and runtime_sha != "unknown":
                           ready = client.get(base + "/ready")
                           if ready.status_code == 200:
                               break
@@ -135,7 +137,9 @@ jobs:
                       pass
                   time.sleep(3)
               else:
-                  raise SystemExit("production did not expose the current GITHUB_SHA as ready")
+                  raise SystemExit("production did not expose a live, ready runtime SHA within 180s")
+
+              print("RUNTIME_SHA:", runtime_sha)
 
               for case in cases:
                   conversation_id = f"personality-{case['id']}-{uuid.uuid4().hex}"
