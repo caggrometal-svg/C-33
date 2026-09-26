@@ -1,11 +1,12 @@
-"""Create an ephemeral C-33 CI identity session without exposing server/provider secrets."""
+"""Create a resilient ephemeral C-33 CI identity session without exposing server/provider secrets."""
 
 from __future__ import annotations
 
 import base64
 import json
 import sys
-from urllib.parse import urljoin
+import time
+from typing import Callable
 
 import httpx
 from cryptography.hazmat.primitives import hashes
@@ -15,6 +16,28 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 def b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _post_json(
+    client: httpx.Client,
+    url: str,
+    *,
+    payload: dict[str, object] | None = None,
+    attempts: int = 6,
+) -> httpx.Response:
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = client.post(url, json=payload)
+            if response.status_code < 500 and response.status_code != 429:
+                response.raise_for_status()
+                return response
+            last_error = RuntimeError(f"transient_http_{response.status_code}: {response.text[:300]}")
+        except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            last_error = exc
+        if attempt < attempts:
+            time.sleep(min(6.0, 2 ** (attempt - 1)))
+    raise RuntimeError(f"authentication_request_failed: {type(last_error).__name__}: {last_error}") from last_error
 
 
 def create_session(base_url: str, device_id: str) -> dict[str, str]:
@@ -28,9 +51,9 @@ def create_session(base_url: str, device_id: str) -> dict[str, str]:
         "y": b64url(numbers.y.to_bytes(32, "big")),
     }
 
-    with httpx.Client(timeout=15.0) as client:
-        challenge = client.post(urljoin(base, "v1/auth/challenge"))
-        challenge.raise_for_status()
+    timeout = httpx.Timeout(15.0, connect=6.0, read=15.0, write=10.0)
+    with httpx.Client(timeout=timeout) as client:
+        challenge = _post_json(client, base + "v1/auth/challenge")
         challenge_value = str(challenge.json().get("challenge", "")).strip()
         if not challenge_value:
             raise RuntimeError("missing_auth_challenge")
@@ -39,16 +62,16 @@ def create_session(base_url: str, device_id: str) -> dict[str, str]:
         r, s = decode_dss_signature(der)
         raw_signature = r.to_bytes(32, "big") + s.to_bytes(32, "big")
 
-        session = client.post(
-            urljoin(base, "v1/auth/session"),
-            json={
+        session = _post_json(
+            client,
+            base + "v1/auth/session",
+            payload={
                 "challenge": challenge_value,
                 "device_id": str(device_id),
                 "public_key": public_key,
                 "signature": b64url(raw_signature),
             },
         )
-        session.raise_for_status()
         data = session.json()
         token = str(data.get("session_token", "")).strip()
         identity = str(data.get("identity_id", "")).strip()
