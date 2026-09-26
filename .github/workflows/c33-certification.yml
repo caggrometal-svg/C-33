@@ -178,7 +178,7 @@ jobs:
           ram-size: 4096M
           emulator-options: "-no-window -noaudio -no-boot-anim -gpu swiftshader_indirect"
           script: |
-            set -euo pipefail
+            set -eu
             echo "C33_EMULATOR_BOOTED: PASS"
             package_ready=false
             for i in $(seq 1 45); do
@@ -503,7 +503,7 @@ jobs:
           print("AUTH_IDENTITY:", auth_identity)
 
           payload = {
-              "message": "Reply with exactly C33_REMOTE_SMOKE_OK.",
+              "message": "Memoriza este dato para esta conversación: el código de verificación es C33_MEMORY_SEED_42. Responde únicamente C33_MEMORY_STORED.",
               "user_id": auth_identity,
               "conversation_id": "cert-" + uuid.uuid4().hex,
               "request_id": uuid.uuid4().hex,
@@ -547,7 +547,7 @@ jobs:
               raise SystemExit(f"Invalid live AI readiness probe: {json.dumps(probe)}")
 
           second_payload = {
-              "message": "Using the conversation context, reply briefly with C33_MEMORY_OK.",
+              "message": "¿Cuál fue el código de verificación que te indiqué en el mensaje anterior? Responde únicamente con el código exacto.",
               "user_id": auth_identity,
               "conversation_id": payload["conversation_id"],
               "request_id": uuid.uuid4().hex,
@@ -634,8 +634,11 @@ jobs:
 
           if second_meta.get("used_local_fallback"):
               raise SystemExit("second remote chat unexpectedly used local fallback")
-          if not str(second_data.get("synthesis", "")).strip():
+          second_synthesis = str(second_data.get("synthesis", "")).strip()
+          if not second_synthesis:
               raise SystemExit("second remote chat returned empty synthesis")
+          if "C33_MEMORY_SEED_42" not in second_synthesis:
+              raise SystemExit(f"conversation memory was not recovered: {second_synthesis!r}")
 
           saw_token = False
           saw_done = False
@@ -1024,6 +1027,7 @@ jobs:
           CLOSURE_RESULT: ${{ needs.closure.result }}
           CLOSURE_61_100_RESULT: ${{ needs.closure_61_100.result }}
           SIX_RUNTIME_RESULT: ${{ needs.six_runtime_surfaces.result }}
+          SSE_REPLAY_RESULT: ${{ needs.sse_replay_recovery.result }}
         run: |
           test "$BACKEND_RESULT" = success
           test "$MOBILE_RESULT" = success
@@ -1035,6 +1039,7 @@ jobs:
           test "$CLOSURE_RESULT" = success
           test "$CLOSURE_61_100_RESULT" = success
           test "$SIX_RUNTIME_RESULT" = success
+          test "$SSE_REPLAY_RESULT" = success
           echo "C-33 FINAL MATRIX GREEN"
           echo "NEXO 41-60 CLOSURE GREEN"
           echo "NEXO 61-100 CONTRACT MATRIX GREEN"
