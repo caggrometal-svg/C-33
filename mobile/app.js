@@ -1301,63 +1301,29 @@ form.addEventListener("submit", async (event) => {
   };
   try {
     await ensureIdentitySession();
-    await streamChatWithFailover({
+    const result = await requestWithFailover(API_PATH, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestPayload),
+      body: JSON.stringify({ ...requestPayload, stream: false }),
     });
+    const data = result?.data || {};
+    if (!data?.synthesis) throw new Error("empty_chat_response");
+    const assistantNode = addMessage(data.synthesis, "assistant");
+    const sources = data?.web_searches || data?._meta?.web_searches || [];
+    if (sources.length) renderWebSources(assistantNode, sources);
+    lastMeta = { ...(data?._meta || {}), client_transport: "http" };
+    transition(
+      lastMeta?.system_status === "DEGRADED" || lastMeta?.failover_triggered ? "DEGRADED" : "AI_READY",
+      "NEXO · respuesta recibida · " + (lastMeta?.provider_used || "remoto"),
+    );
   } catch (error) {
-    const hadPartialStream = /NEXO stream interrumpido:/i.test(String(error?.message || ""));
-    const partialNode = error?.partialNode || null;
-    if (hadPartialStream || error?.code === "REMOTE_EXHAUSTED") {
-      recordDiagnostic("stream-recovery-required", {
-        reason: error.message || "REMOTE_EXHAUSTED",
-        request_id: requestId,
-        interrupted_after_partial: hadPartialStream,
-      });
-      try {
-        const recovered = await recoverInterruptedStream(requestPayload, error.message || "REMOTE_EXHAUSTED", partialNode);
-        recordDiagnostic("stream-recovery-complete", {
-          request_id: requestId,
-          backend: recovered.backend,
-          recovery: recovered.recovery,
-          replayed: recovered.replayed,
-        });
-      } catch (recoveryError) {
-        const recoveryReason = normalizeError(recoveryError);
-        recordDiagnostic("stream-recovery-failed", {
-          request_id: requestId,
-          reason: recoveryReason,
-          error_name: recoveryError?.name || "",
-          error_message: recoveryError?.message || "",
-        });
-        const localReason = [error.message || "REMOTE_EXHAUSTED", recoveryReason]
-          .filter(Boolean)
-          .join(" | ");
-        const fallbackText = localFallbackMessage(message, localReason);
-        addMessage(fallbackText, "assistant");
-        lastMeta = {
-          ...(lastMeta || {}),
-          provider_used: "local",
-          model: "client-deterministic-fallback",
-          failover_triggered: true,
-          final_reason: "remote_exhausted",
-          system_status: "DEGRADED",
-          used_local_fallback: true,
-          request_id: requestId,
-        };
-        recordDiagnostic("client-local-fallback", {
-          request_id: requestId,
-          reason: localReason,
-          remote_error: error.message || "REMOTE_EXHAUSTED",
-          recovery_error: recoveryReason,
-        });
-        transition("DEGRADED", "NEXO · respaldo local · IA remota no disponible");
-      }
-    } else {
-      addMessage(error.message || "Error de conexión.", "error");
-      transition("DEGRADED", "NEXO · servicio no disponible");
-    }
+    const reason = normalizeError(error);
+    recordDiagnostic("chat-http-failed", {
+      request_id: requestId,
+      reason,
+    });
+    addMessage("NEXO no pudo completar la respuesta: " + reason, "error");
+    transition("DEGRADED", "NEXO · servicio no disponible");
   } finally {
     send.disabled = false;
     input.focus();
