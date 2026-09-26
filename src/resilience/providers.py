@@ -196,13 +196,14 @@ class ProviderCascade:
                 raise ProviderConfigurationError(f"non_free_model_blocked:{spec.provider_id}")
 
         disabled = {x.strip() for x in os.getenv("AI_DISABLED_PROVIDERS", "").split(",") if x.strip()}
+        disabled.discard("pollinations")
         unknown_disabled = sorted(disabled - provider_ids)
         if unknown_disabled:
             raise ProviderConfigurationError("unknown_disabled_providers:" + ",".join(unknown_disabled))
 
         raw_order = os.getenv("AI_PROVIDER_ORDER", "").strip()
         order = (
-            [x.strip() for x in raw_order.split(",") if x.strip()]
+            [x.strip() for x in raw_order.split(",") if x.strip() and x.strip() != "pollinations"]
             if raw_order
             else ["kilo", "vireonix"]
         )
