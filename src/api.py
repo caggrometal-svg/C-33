@@ -28,6 +28,16 @@ if _SRC_DIR not in __import__("sys").path:
 from agent.brain import AgentResult, Brain
 from nexo.observability import RequestMetrics, normalize_request_id
 from nexo.evidence import grade_evidence
+from nexo.identity import (
+    IdentityAuthError,
+    assert_identity_matches,
+    identity_id_from_public_key,
+    issue_challenge,
+    issue_session,
+    session_from_authorization_header,
+    verify_challenge,
+    verify_client_signature,
+)
 from nexo.http_security import apply_security_headers
 from nexo.actions import ActionPolicyError, ActionRequest, ExternalActionExecutor
 from nexo.local_llm import LocalLLMClient
@@ -100,6 +110,18 @@ async def _enforce_rate_limit(request: Request, scope: str, limit: int) -> None:
                 )
                 for bucket_key, _ in oldest[: len(_rate_limit_buckets) - 4096]:
                     _rate_limit_buckets.pop(bucket_key, None)
+
+class AuthSessionRequest(BaseModel):
+    challenge: str = Field(min_length=20, max_length=2048)
+    device_id: str = Field(min_length=1, max_length=256)
+    public_key: dict[str, Any]
+    signature: str = Field(min_length=80, max_length=256)
+
+    @field_validator("challenge", "device_id", "signature", mode="before")
+    @classmethod
+    def strip_auth_text(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
@@ -215,6 +237,26 @@ def _backend_url() -> str:
     if configured:
         return configured
     return ""
+
+def _authenticated_session(request: Request):
+    try:
+        return session_from_authorization_header(
+            request.headers.get("Authorization"),
+            config.secret_keys,
+        )
+    except IdentityAuthError as exc:
+        raise HTTPException(status_code=401, detail={"reason": str(exc)}) from exc
+
+
+def _authorize_identity(request: Request, requested_user_id: str):
+    session = _authenticated_session(request)
+    try:
+        assert_identity_matches(session, requested_user_id)
+    except IdentityAuthError as exc:
+        raise HTTPException(status_code=403, detail={"reason": str(exc)}) from exc
+    request.state.c33_identity = session
+    return session
+
 
 def _require_runtime() -> tuple[PostgresState, Brain, ProviderCascade]:
     if state is None or brain is None or cascade is None:
@@ -453,6 +495,42 @@ async def observability_middleware(request: Request, call_next):
     response.headers.setdefault("Cache-Control", "no-store")
     return response
 
+@app.post("/v1/auth/challenge")
+async def auth_challenge(request: Request) -> dict[str, Any]:
+    await _enforce_rate_limit(request, "auth-challenge", 20)
+    challenge, expires_at = issue_challenge(config.secret_keys)
+    return {
+        "status": "ok",
+        "challenge": challenge,
+        "expires_at": expires_at,
+    }
+
+
+@app.post("/v1/auth/session")
+async def auth_session(payload: AuthSessionRequest, request: Request) -> dict[str, Any]:
+    await _enforce_rate_limit(request, "auth-session", 20)
+    try:
+        verify_challenge(payload.challenge, config.secret_keys)
+        verify_client_signature(payload.public_key, payload.challenge, payload.signature)
+        identity_id = identity_id_from_public_key(payload.public_key)
+        token, expires_at = issue_session(
+            config.secret_keys,
+            identity_id=identity_id,
+            device_id=payload.device_id,
+        )
+    except IdentityAuthError as exc:
+        raise HTTPException(status_code=401, detail={"reason": str(exc)}) from exc
+    return {
+        "status": "ok",
+        "service": "C-33",
+        "identity_id": identity_id,
+        "device_id": payload.device_id,
+        "session_token": token,
+        "expires_at": expires_at,
+        "token_type": "Bearer",
+    }
+
+
 @app.get("/health")
 async def health() -> dict[str, Any]:
     """Pure liveness: process is alive; no DB/AI check and no false readiness."""
@@ -585,6 +663,7 @@ async def replication_status() -> dict[str, Any]:
 @app.post("/v1/export")
 async def export_user_data(payload: ExportRequest, request: Request) -> dict[str, Any]:
     await _enforce_rate_limit(request, "data-export", _RATE_LIMIT_DATA)
+    session = _authorize_identity(request, payload.user_id)
     st, _, _ = _require_runtime()
     export_query = _export_messages_query(payload.conversation_id)
     export_params = (
@@ -610,19 +689,20 @@ async def export_user_data(payload: ExportRequest, request: Request) -> dict[str
     ]
     memory = [dict(item) for item in messages if item["metadata"].get("memory_fact")]
     bundle = export_bundle(
-        user_id=payload.user_id,
+        user_id=session.identity_id,
         messages=messages,
         memory=memory,
         preferences=dict(payload.preferences),
         configuration=dict(payload.configuration),
-        identity_id=payload.identity_id,
-        device_id=payload.device_id,
+        identity_id=session.identity_id,
+        device_id=session.device_id,
     )
     return {"status": "ok", "bundle": bundle, "message_count": len(messages)}
 
 @app.post("/v1/import")
 async def import_user_data(payload: ImportRequest, request: Request) -> dict[str, Any]:
     await _enforce_rate_limit(request, "data-import", _RATE_LIMIT_DATA)
+    session = _authenticated_session(request)
     st, _, _ = _require_runtime()
     ok, warnings = validate_bundle(payload.bundle)
     if not ok:
@@ -632,6 +712,11 @@ async def import_user_data(payload: ImportRequest, request: Request) -> dict[str
             len(payload.bundle.get("messages", [])) if isinstance(payload.bundle.get("messages", []), list) else -1,
         )
         raise HTTPException(status_code=400, detail={"reason": "invalid_bundle", "warnings": list(warnings)})
+    bundle_user_id = str(payload.bundle.get("user_id", "")).strip()
+    try:
+        assert_identity_matches(session, bundle_user_id)
+    except IdentityAuthError as exc:
+        raise HTTPException(status_code=403, detail={"reason": str(exc)}) from exc
     messages = payload.bundle.get("messages", [])
     if len(messages) > _MAX_IMPORT_MESSAGES:
         raise HTTPException(status_code=413, detail={"reason": "import_too_large"})
@@ -964,6 +1049,7 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     await _enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)
+    _authorize_identity(request, payload.user_id)
     try:
         return await asyncio.wait_for(_handle_chat(payload, request), timeout=config.backend_total_timeout_ms / 1000)
     except ClientDisconnected as exc:
@@ -975,6 +1061,7 @@ async def chat(payload: ChatRequest, request: Request) -> ChatResponse:
 @app.post("/v1/ai/stream")
 async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse:
     await _enforce_rate_limit(request, "generation", _RATE_LIMIT_GENERATION)
+    _authorize_identity(request, payload.user_id)
     st, b, providers = _require_runtime()
     request_id = payload.request_id.strip() or os.urandom(12).hex()
     fingerprint = hashlib.sha256(payload.message.encode("utf-8")).hexdigest()[:12]
