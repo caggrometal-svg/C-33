@@ -59,6 +59,16 @@ _MAX_REPLICATION_BODY_BYTES = 2_000_000
 _rate_limit_lock = asyncio.Lock()
 _rate_limit_buckets: dict[tuple[str, str], list[float]] = {}
 
+def _export_messages_query(conversation_id: str | None) -> str:
+    base = (
+        "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
+        "FROM c33_messages WHERE user_id=$1 "
+    )
+    if conversation_id:
+        return base + "AND conversation_id=$2 ORDER BY created_at, seq LIMIT $3"
+    return base + "ORDER BY created_at, seq LIMIT $2"
+
+
 async def _enforce_rate_limit(request: Request, scope: str, limit: int) -> None:
     client_host = request.client.host if request.client else "unknown"
     key = (scope, client_host)
@@ -473,21 +483,14 @@ async def replication_status() -> dict[str, Any]:
 async def export_user_data(payload: ExportRequest, request: Request) -> dict[str, Any]:
     await _enforce_rate_limit(request, "data-export", _RATE_LIMIT_DATA)
     st, _, _ = _require_runtime()
+    export_query = _export_messages_query(payload.conversation_id)
+    export_params = (
+        (payload.user_id, payload.conversation_id, _MAX_EXPORT_MESSAGES)
+        if payload.conversation_id
+        else (payload.user_id, _MAX_EXPORT_MESSAGES)
+    )
     async with st.pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id::text,conversation_id,user_id,seq,role,content,metadata,request_id,created_at "
-            "FROM c33_messages WHERE user_id=$1 "
-            + ("AND conversation_id=$2 " if payload.conversation_id else "")
-            + "ORDER BY created_at, seq LIMIT $3",
-            *((
-                payload.user_id,
-                payload.conversation_id,
-                _MAX_EXPORT_MESSAGES,
-            ) if payload.conversation_id else (
-                payload.user_id,
-                _MAX_EXPORT_MESSAGES,
-            )),
-        )
+        rows = await conn.fetch(export_query, *export_params)
     messages = [
         {
             "id": str(row["id"]),
