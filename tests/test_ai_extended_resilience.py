@@ -72,6 +72,8 @@ async def test_all_providers_down() -> None:
 
 
 async def test_rate_limit() -> None:
+    import os
+    os.environ.setdefault("PORT", "8080")
     import api
 
     api._rate_limit_buckets.clear()
