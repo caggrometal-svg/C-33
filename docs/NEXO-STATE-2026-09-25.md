@@ -1,27 +1,29 @@
-# NEXO — Estado auditado 2026-09-25
+# NEXO — Estado auditado 2026-09-26
 
 Fuente de verdad: rama `main`.
 
-SHA certificado de código: `031aa50d422a0d098b53200f63f34fbf3720194b`.
+## Certificación 61-100
 
-C-33 Certification run 296: **PASS**.
-NEXO Progress Gate run 152: **PASS**.
-Railway production deployment `ae3166dc-4bad-46e9-83d0-2a57b1f2a9a3`: **SUCCESS**.
+El cierre 61-100 fue corregido para impedir falsos GREEN.
 
-## Evidencia live
-El gate certificó 200 en:
-`/health`, `/ready`, `/v1/chat`, Web/IA remota, `/v1/ai-ready`, segundo turno de conversación, `/v1/ai/stream`, `/status` y `/v1/ai/diagnostics`.
+- Contractual: 🟢 GREEN (40/40).
+- Runtime 61-72: N/A.
+- Runtime 73-100: 🔵 BLUE (28/28) hasta evidencia actual.
+- Capacidades runtime cerradas: ninguna dentro del bloque 61-100.
 
-La topología de inferencia queda restringida a Kilo Auto Free → Vireonix, ambos sin pago requerido. El modo FREE queda bloqueado por código y cualquier API key o proveedor no aprobado es rechazado. Cada intento permanece acotado a 4.5 s.
+El código y las pruebas definen contratos, pero no se consideran prueba de ejecución productiva.
 
-## Estado de trabajo
-C-33, conectividad, health, circuit breaker, observabilidad, failover, Web, memoria base, Model Hub, Tool Hub, Orchestrator, contratos 23-40 y cierre contractual 41-60: **VERDE en el alcance certificado actual**.
+## Regla probatoria
 
-Multidevice/descentralización runtime permanece **AZUL** hasta recuperar el peer: la certificación live observó `peer_status=OFFLINE` y `replication_pending=393`. Esto no invalida el cierre contractual 41-60; es capacidad externa posterior pendiente de recuperación.
+Para declarar runtime GREEN se exige simultáneamente:
+`contrato + tests + PASS + commit + SHA desplegado coincidente + runtime observado + recovery cuando corresponda`.
 
-Extensión 61-100: 🟢 **VERDE contractual/automatizada (40/40)**. C-33 Certification #296: PASS. **🟢 VERDE contractual/automatizada (40/40)**. El gate 61-100 valida cobertura completa y ausencia de estados RED; las capacidades externas aún no realizadas continúan AZULES.
+Una ejecución histórica no certifica una nueva versión después de cambios funcionales o de seguridad.
 
-## Siguiente etapa
-IA local real, export/import UX completo, acciones externas, portabilidad completa y descentralización completa son trabajo posterior. No bloquean el cierre actual de ETAPA 40.
+## Estado de producción actual
 
-Regla: módulo existente no equivale a madurez total; cada expansión futura debe pasar el mismo contrato → tests → SHA → runtime → recovery.
+El deployment de Railway correspondiente al ciclo actual debe volver a pasar sus gates después de los cambios recientes de seguridad y certificación. Un estado BUILDING/PENDING no es PASS.
+
+## Próximo cierre
+
+La siguiente certificación debe demostrar primero el runtime de las capacidades que correspondan. Solo entonces la matriz puede promover filas específicas de BLUE a GREEN.
