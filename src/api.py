@@ -943,8 +943,25 @@ async def _handle_chat(payload: ChatRequest, request: Request) -> ChatResponse:
     )
     if existing:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
+        stored_meta.setdefault("provider_used", "unknown")
+        stored_meta.setdefault("model", "unknown")
+        stored_meta.setdefault("failover_triggered", False)
+        stored_meta.setdefault("latency_ms", 0)
+        stored_meta.setdefault("final_reason", "replayed")
+        stored_meta.setdefault("system_status", "DEGRADED" if stored_meta.get("provider_used") == "local" else "AI_READY")
+        stored_meta.setdefault("backend_role", config.role)
+        stored_meta.setdefault("backend_url", _backend_url())
         stored_meta.setdefault("request_id", request_id)
         stored_meta.setdefault("conversation_id", effective_payload.conversation_id)
+        stored_meta.setdefault("memory_sync", "UNKNOWN")
+        stored_meta.setdefault("peer_status", "UNKNOWN")
+        stored_meta.setdefault("provider_attempts", 0)
+        stored_meta.setdefault("used_local_fallback", stored_meta.get("provider_used") == "local")
+        stored_meta.setdefault("web_searches", [])
+        stored_meta.setdefault("verification_ok", None)
+        stored_meta.setdefault("verification_warnings", [])
+        stored_meta.setdefault("evidence_grade", None)
+        stored_meta.setdefault("web_sources_details", [])
         stored_meta["replayed"] = True
         return ChatResponse(status="ok",service="C-33",user_id=effective_payload.user_id,conversation_id=effective_payload.conversation_id,request_id=request_id,synthesis=existing.content,web_searches=list(stored_meta.get("web_searches", [])),meta=stored_meta)
 
