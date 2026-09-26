@@ -792,8 +792,8 @@ class PostgresState:
                 SELECT
                     total_messages,
                     unique_message_ids,
-                    encode(digest(convert_to(id_data, 'UTF8'), 'sha256'), 'hex') AS message_id_digest,
-                    encode(digest(convert_to(message_data, 'UTF8'), 'sha256'), 'hex') AS message_digest
+                    encode(extensions.digest(convert_to(id_data, 'UTF8'), 'sha256'), 'hex') AS message_id_digest,
+                    encode(extensions.digest(convert_to(message_data, 'UTF8'), 'sha256'), 'hex') AS message_digest
                 FROM aggregate_data
                 """
             )
