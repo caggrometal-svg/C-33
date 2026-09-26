@@ -73,6 +73,16 @@ class PeerRebootstrapTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("INSERT INTO c33_replication_meta", conn.executed[0][0])
         self.assertIn("SET synced_at=NULL", conn.executed[1][0])
 
+    async def test_startup_requeues_unsynced_work_without_resetting_history(self):
+        conn = FakeConn()
+        state = PostgresState(FakePool(conn))
+        await state.requeue_pending_replication()
+
+        self.assertEqual(len(conn.executed), 1)
+        self.assertIn("UPDATE c33_replication_outbox", conn.executed[0][0])
+        self.assertIn("SET next_attempt_at=now()", conn.executed[0][0])
+        self.assertIn("WHERE synced_at IS NULL", conn.executed[0][0])
+
     async def test_same_peer_does_not_requeue(self):
         fp = PostgresState.replication_peer_fingerprint("https://peer.example.test")
         conn = FakeConn(row={"peer_url": "https://peer.example.test", "peer_fingerprint": fp})
