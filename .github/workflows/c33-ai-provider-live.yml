@@ -186,6 +186,11 @@ jobs:
     needs: ai-provider-live
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install certification client
+        run: python -m pip install httpx cryptography
       - name: Resolve active C-33 backend
         run: echo "C33_BASE_URL=$(python -c 'import json; print(json.load(open("infra/c33-endpoints.json"))["production"])')" >> "$GITHUB_ENV"
       - name: Verify Railway liveness
