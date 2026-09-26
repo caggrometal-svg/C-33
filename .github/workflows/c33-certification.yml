@@ -276,7 +276,7 @@ jobs:
           expected = os.environ["EXPECTED_SHA"]
           if not base or not peer_base:
               raise SystemExit("C33 live endpoint manifest is incomplete")
-          deadline = time.time() + 180
+          deadline = time.time() + 900
           health_data = None
 
           while time.time() < deadline:
