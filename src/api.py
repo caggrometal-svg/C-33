@@ -813,8 +813,8 @@ async def _commit_turn(st: PostgresState, payload: ChatRequest, synthesis: str, 
     if config.peer_url and config.peer_replication_secret:
         try:
             await asyncio.wait_for(
-                st.replicate_batch(config.peer_url, config.peer_replication_secret, limit=10, timeout_ms=650),
-                timeout=min(0.75, max(0.05, (meta.get("remaining_ms", 750) or 750) / 1000)),
+                st.replicate_batch(config.peer_url, config.peer_replication_secret, limit=10, timeout_ms=5000),
+                timeout=min(5.0, max(0.05, (meta.get("remaining_ms", 5000) or 5000) / 1000)),
             )
         except Exception:
             pass
