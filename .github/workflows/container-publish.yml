@@ -12,6 +12,7 @@ on:
       - "Dockerfile"
       - "railway.json"
       - ".github/workflows/container-publish.yml"
+      - ".github/workflows/nexo-observed-personality.yml"
 
 permissions:
   contents: read
