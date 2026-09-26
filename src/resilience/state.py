@@ -536,11 +536,11 @@ class PostgresState:
             return 0, 0
         if self.pool is not None:
             async with self.pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO c33_replication_outbox(message_id) "
-                "SELECT id FROM c33_messages "
-                "ON CONFLICT(message_id) DO NOTHING"
-            )
+                await conn.execute(
+                    "INSERT INTO c33_replication_outbox(message_id) "
+                    "SELECT id FROM c33_messages "
+                    "ON CONFLICT(message_id) DO NOTHING"
+                )
         messages = await self.pending_replication(limit)
         if not messages:
             return 0, 0
