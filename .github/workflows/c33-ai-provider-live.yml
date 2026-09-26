@@ -206,8 +206,24 @@ jobs:
         run: |
           set -euo pipefail
           BASE="$C33_BASE_URL"
-          payload='{"message":"Reply exactly C33_PRODUCTION_AI_OK","user_id":"ci","conversation_id":"ci-production-ai","request_id":"ci-production-ai-001","stream":false,"personality":"base","voice_tone":"neutral"}'
-          response="$(curl --fail-with-body --silent --show-error --max-time 35             -H "Content-Type: application/json"             -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))"             -d "$payload" "$BASE/v1/chat")"
+          auth_json="$(python scripts/c33_ci_auth.py "$BASE" "github-ai-provider-${GITHUB_RUN_ID}")"
+          authorization="$(python -c 'import json,sys; print(json.load(sys.stdin)["authorization"])' <<<"$auth_json")"
+          identity_id="$(python -c 'import json,sys; print(json.load(sys.stdin)["identity_id"])' <<<"$auth_json")"
+          payload="$(python - "$identity_id" <<'PY'
+          import json, sys
+          print(json.dumps({
+              "message":"Reply exactly C33_PRODUCTION_AI_OK",
+              "user_id":sys.argv[1],
+              "conversation_id":"ci-production-ai",
+              "request_id":"ci-production-ai-001",
+              "stream":False,
+              "personality":"base",
+              "voice_tone":"neutral"
+          }))
+          PY
+          )"
+
+          response="$(curl --fail-with-body --silent --show-error --max-time 35             -H "Content-Type: application/json"             -H "Authorization: $authorization"             -H "X-C33-Deadline-Epoch-Ms: $(( $(date +%s%3N) + 30000 ))"             -d "$payload" "$BASE/v1/chat")"
           echo "$response"
           python - "$response" <<'PY'
           import json, sys
