@@ -532,8 +532,16 @@ class PostgresState:
         limit: int = 20,
         timeout_ms: int = 900,
     ) -> tuple[int, int]:
+        if not peer_url:
+            return 0, 0
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO c33_replication_outbox(message_id) "
+                "SELECT id FROM c33_messages "
+                "ON CONFLICT(message_id) DO NOTHING"
+            )
         messages = await self.pending_replication(limit)
-        if not messages or not peer_url:
+        if not messages:
             return 0, 0
         payload = {
             "messages": [
