@@ -9,7 +9,7 @@ class ApiContractTests(unittest.TestCase):
         self.providers = (ROOT / "src" / "resilience" / "providers.py").read_text(encoding="utf-8")
 
     def test_stream_replays_completed_request_by_id(self):
-        self.assertIn("existing_assistant_for_request(payload.conversation_id, request_id)", self.api)
+        self.assertIn("st.existing_assistant_for_request(\n        effective_payload.conversation_id,\n        request_id,\n        effective_payload.user_id,\n    )", self.api)
         self.assertIn('"replayed"] = True', self.api)
         self.assertIn('"meta":final_meta', self.api)
 

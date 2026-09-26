@@ -3,6 +3,8 @@ name: C-33 Certification
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -138,10 +140,31 @@ jobs:
       - name: Build release APK
         working-directory: mobile/android
         run: ./gradlew assembleRelease --no-daemon
-      - name: SHA-256 release APK
+      - name: Sign and verify release APK
+        working-directory: mobile/android
         run: |
-          test -f mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
-          sha256sum mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk | tee SHA256SUMS.txt
+          set -euo pipefail
+          keytool -genkeypair -v \
+            -keystore c33-release-ci.jks \
+            -alias c33-ci \
+            -keyalg RSA -keysize 2048 \
+            -validity 3650 \
+            -storepass changeit -keypass changeit \
+            -dname "CN=C-33 CI,O=C-33,C=CL"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)"
+          test -x "$APKSIGNER"
+          "$APKSIGNER" sign \
+            --ks c33-release-ci.jks \
+            --ks-key-alias c33-ci \
+            --ks-pass pass:changeit \
+            --key-pass pass:changeit \
+            --out app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk
+          "$APKSIGNER" verify --verbose app/build/outputs/apk/release/app-release.apk
+      - name: SHA-256 signed release APK
+        run: |
+          test -f mobile/android/app/build/outputs/apk/release/app-release.apk
+          sha256sum mobile/android/app/build/outputs/apk/release/app-release.apk | tee SHA256SUMS.txt
       - name: Install release APK on Android emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -150,9 +173,28 @@ jobs:
           target: google_apis
           profile: pixel_6
           disable-animations: true
+          emulator-boot-timeout: 900
+          cores: 4
+          ram-size: 4096M
           emulator-options: "-no-window -noaudio -no-boot-anim -gpu swiftshader_indirect"
           script: |
-            adb install -r mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            set -euo pipefail
+            echo "C33_EMULATOR_BOOTED: PASS"
+            package_ready=false
+            for i in $(seq 1 45); do
+              if adb shell cmd package list packages >/dev/null 2>&1; then
+                package_ready=true
+                echo "C33_PACKAGE_MANAGER_READY: PASS"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$package_ready" != "true" ]; then
+              adb shell service check package || true
+              adb shell getprop sys.boot_completed || true
+              exit 1
+            fi
+            adb install -r mobile/android/app/build/outputs/apk/release/app-release.apk
             adb shell pm path com.c33.mobile
             adb shell am force-stop com.c33.mobile
             adb shell monkey -p com.c33.mobile 1
@@ -170,7 +212,7 @@ jobs:
         with:
           name: C33-0.1.6-release-evidence
           path: |
-            mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
+            mobile/android/app/build/outputs/apk/release/app-release.apk
             SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14

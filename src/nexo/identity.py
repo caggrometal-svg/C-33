@@ -16,6 +16,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from cryptography.exceptions import InvalidSignature
+
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
@@ -142,7 +144,7 @@ def verify_client_signature(public_key: dict[str, Any], challenge: str, signatur
     der_signature = encode_dss_signature(r, s)
     try:
         public.verify(der_signature, challenge.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
-    except ValueError as exc:
+    except (ValueError, InvalidSignature) as exc:
         raise IdentityAuthError("client_signature_invalid") from exc
 
 
