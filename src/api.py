@@ -1106,9 +1106,25 @@ async def ai_stream(payload: ChatRequest, request: Request) -> StreamingResponse
     logger.info("[NEXO_DEBUG_STREAM] idempotency_check request_id=%s existing=%s", request_id, bool(existing))
     if existing:
         stored_meta = dict(existing.metadata.get("meta", {})) if isinstance(existing.metadata, dict) else {}
+        stored_meta.setdefault("provider_used", "unknown")
+        stored_meta.setdefault("model", "unknown")
+        stored_meta.setdefault("failover_triggered", False)
+        stored_meta.setdefault("latency_ms", 0)
+        stored_meta.setdefault("final_reason", "replayed")
+        stored_meta.setdefault("system_status", "DEGRADED" if stored_meta.get("provider_used") == "local" else "AI_READY")
+        stored_meta.setdefault("backend_role", config.role)
+        stored_meta.setdefault("backend_url", _backend_url())
         stored_meta.setdefault("request_id", request_id)
         stored_meta.setdefault("conversation_id", payload.conversation_id)
+        stored_meta.setdefault("memory_sync", "UNKNOWN")
+        stored_meta.setdefault("peer_status", "UNKNOWN")
+        stored_meta.setdefault("provider_attempts", 0)
         stored_meta.setdefault("used_local_fallback", existing.metadata.get("provider_used") == "local" if isinstance(existing.metadata, dict) else False)
+        stored_meta.setdefault("web_searches", [])
+        stored_meta.setdefault("verification_ok", None)
+        stored_meta.setdefault("verification_warnings", [])
+        stored_meta.setdefault("evidence_grade", None)
+        stored_meta.setdefault("web_sources_details", [])
         stored_meta["replayed"] = True
 
         async def replay_events():
