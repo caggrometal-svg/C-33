@@ -73,12 +73,34 @@ class MobileContractTests(unittest.TestCase):
         self.assertIn("Number(C.CLIENT_TIMEOUT_MS || 22000)", app)
         self.assertNotIn("Number(C.CLIENT_TIMEOUT_MS || 28000)", app)
 
-    def test_mobile_diagnostics_are_bounded_and_truncated(self):
+    def test_mobile_diagnostics_are_minimized_and_redacted(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
-        self.assertIn("const MAX_DIAGNOSTICS = 40;", app)
-        self.assertIn('.slice(0, MAX_DIAGNOSTICS)', app)
-        self.assertIn('function truncateDiagnostic(value, max = 4000)', app)
-        self.assertIn('"…[truncated]"', app)
+        self.assertIn('const DIAGNOSTIC_KEY = "C33_REMOTE_DIAGNOSTICS_V2";', app)
+        self.assertIn("const LEGACY_DIAGNOSTIC_KEYS = [\"C33_REMOTE_DIAGNOSTICS_V1\"];", app)
+        self.assertIn("const MAX_DIAGNOSTICS = 20;", app)
+        self.assertIn("const MAX_DIAGNOSTIC_REPORT = 10;", app)
+        self.assertIn("const DIAGNOSTIC_KEYS = new Set([", app)
+        self.assertIn("function sanitizeDiagnosticDetails(details = {})", app)
+        self.assertIn("function diagnosticReason(value)", app)
+        self.assertIn("function diagnosticEndpoint(value)", app)
+        self.assertIn("function diagnosticRequestRef(value)", app)
+        self.assertIn("compactDiagnosticsStorage();", app)
+        self.assertIn('localStorage.removeItem(legacyKey);', app)
+        self.assertNotIn('entry.body', app)
+        self.assertNotIn('entry.raw', app)
+        self.assertNotIn('response?.url || ""', app)
+        self.assertNotIn('error_message: error?.message || ""', app)
+        self.assertNotIn('error_name: error?.name || ""', app)
+        self.assertNotIn('"…[truncated]"', app)
+
+    def test_mobile_diagnostics_store_only_allowlisted_operational_fields(self):
+        app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
+        for field in ("status", "backend", "role", "endpoint", "elapsed_ms", "reason", "provider",
+                      "request_ref", "recovery", "replayed", "received_token", "used_local_fallback"):
+            self.assertIn('"' + field + '"', app)
+        for forbidden in ("message", "synthesis", "body", "raw", "stack", "Authorization", "Cookie"):
+            self.assertNotIn('safe.' + forbidden, app)
+
 
     def test_mobile_circuit_state_uses_v4_storage_key(self):
         app = (ROOT / "mobile" / "app.js").read_text(encoding="utf-8")
