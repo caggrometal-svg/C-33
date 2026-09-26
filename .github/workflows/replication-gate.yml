@@ -60,18 +60,39 @@ jobs:
                   and last.get("quiesced") is True
                   and int(last.get("total_messages", -1)) == int(last.get("unique_message_ids", -2))
               ):
-                  with urllib.request.urlopen(peer_base + "/v1/replication/status", timeout=10) as r:
-                      peer = json.load(r)
-                  for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest"):
-                      if peer.get(key) != last.get(key):
-                          raise SystemExit("integrity_mismatch:" + key)
-                  if peer.get("backend_role") != "secondary":
-                      raise SystemExit("peer_role_mismatch:" + json.dumps(peer, sort_keys=True))
-                  if int(peer.get("replication_pending", -1)) != 0:
-                      raise SystemExit("peer_pending_nonzero")
-                  print(json.dumps({"production_host":base_host,"peer_host":peer_host,"peer_role":peer.get("backend_role"),"replication_pending":peer.get("replication_pending"),"total_messages":peer.get("total_messages")}, sort_keys=True))
-                  print("C33_REPLICATION_INTEGRITY_GREEN")
-                  raise SystemExit(0)
+                  integrity_deadline = time.time() + 60
+                  peer = None
+                  while time.time() < integrity_deadline:
+                      try:
+                          with urllib.request.urlopen(peer_base + "/v1/replication/status", timeout=10) as r:
+                              candidate_peer = json.load(r)
+                      except Exception:
+                          candidate_peer = None
+                      if candidate_peer:
+                          peer = candidate_peer
+                          if (
+                              peer.get("backend_role") == "secondary"
+                              and int(peer.get("replication_pending", -1)) == 0
+                              and all(
+                                  peer.get(key) == last.get(key)
+                                  for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest")
+                              )
+                          ):
+                              print(json.dumps({"production_host":base_host,"peer_host":peer_host,"peer_role":peer.get("backend_role"),"replication_pending":peer.get("replication_pending"),"total_messages":peer.get("total_messages")}, sort_keys=True))
+                              print("C33_REPLICATION_INTEGRITY_GREEN")
+                              raise SystemExit(0)
+                      time.sleep(2)
+                  if peer is not None:
+                      mismatches = [
+                          key for key in ("total_messages", "unique_message_ids", "message_id_digest", "message_digest")
+                          if peer.get(key) != last.get(key)
+                      ]
+                      if peer.get("backend_role") != "secondary":
+                          raise SystemExit("peer_role_mismatch:" + json.dumps(peer, sort_keys=True))
+                      if int(peer.get("replication_pending", -1)) != 0:
+                          raise SystemExit("peer_pending_nonzero")
+                      raise SystemExit("integrity_mismatch_after_convergence_window:" + ",".join(mismatches))
+                  raise SystemExit("peer_integrity_probe_failed_after_convergence_window")
               time.sleep(5)
           raise SystemExit("replication_gate_timeout:" + json.dumps(last, sort_keys=True))
           PY
