@@ -471,6 +471,15 @@ class PostgresState:
     async def all_circuit_snapshots(self, provider_ids: list[str]) -> list[dict[str, Any]]:
         return [await self.circuit_snapshot(pid) for pid in provider_ids]
 
+    async def requeue_pending_replication(self) -> None:
+        """Make unsynced replication work immediately eligible after a clean startup."""
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE c33_replication_outbox "
+                "SET next_attempt_at=now() "
+                "WHERE synced_at IS NULL"
+            )
+
     async def pending_replication(self, limit: int = 20) -> list[ReplicationMessage]:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
