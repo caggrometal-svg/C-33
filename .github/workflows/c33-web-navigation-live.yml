@@ -1,0 +1,94 @@
+name: C-33 Web Navigation Live
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: c33-web-navigation-live-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install runtime
+        run: python -m pip install -r requirements.txt
+      - name: Real web navigation — search, pages and links
+        run: |
+          python - <<'PY'
+          import asyncio
+          import json
+          from src.tools.web import WebTool
+
+          async def main():
+              tool = WebTool(timeout=8.0, max_results=5)
+              query = "NASA Artemis II mission"
+              results = await tool.search(query)
+
+              if len(results) < 3:
+                  raise SystemExit(f"web search returned too few results: {results!r}")
+
+              links = [item.url for item in results]
+              if len(set(links)) != len(links):
+                  raise SystemExit(f"web search returned duplicate links: {links!r}")
+              if not all(url.startswith(("http://", "https://")) for url in links):
+                  raise SystemExit(f"web search returned invalid links: {links!r}")
+
+              pages = []
+              errors = []
+              for item in results:
+                  try:
+                      page = await tool.fetch(item.url)
+                  except Exception as exc:
+                      errors.append({"url": item.url, "error": type(exc).__name__})
+                      continue
+                  if not page.url.startswith(("http://", "https://")):
+                      raise SystemExit(f"page returned invalid URL: {page.url!r}")
+                  if not page.text.strip():
+                      continue
+                  pages.append(page)
+                  if len(pages) >= 2:
+                      break
+
+              if len(pages) < 2:
+                  raise SystemExit(
+                      f"live search succeeded but fewer than 2 public pages were fetchable: "
+                      f"pages={len(pages)} errors={errors!r}"
+                  )
+
+              ai_context = "\n\n".join(
+                  f"[{idx}] {page.title} | {page.url}\n{page.summary}"
+                  for idx, page in enumerate(pages, 1)
+              )
+              if not ai_context.strip():
+                  raise SystemExit("web navigation produced empty AI context")
+              if not all(page.url in ai_context for page in pages):
+                  raise SystemExit("AI context omitted fetched page links")
+
+              print(json.dumps({
+                  "status": "PASS",
+                  "cost_model": "$0",
+                  "query": query,
+                  "search_results": len(results),
+                  "search_links": links,
+                  "fetched_pages": [
+                      {"title": page.title, "url": page.url, "summary": page.summary}
+                      for page in pages
+                  ],
+                  "ai_context_chars": len(ai_context),
+                  "fetch_errors_on_skipped_results": errors,
+              }, ensure_ascii=False, indent=2))
+
+          asyncio.run(main())
+          PY
