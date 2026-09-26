@@ -1,7 +1,8 @@
 window.C33_CONFIG = Object.freeze({
-  CONFIG_VERSION: "2026-09-25.4",
+  CONFIG_VERSION: "2026-09-26.1",
   BACKEND_URLS: [
     "https://iac33-backup-production.up.railway.app",
+    "https://iac33-fastapi-edge-main-production.up.railway.app",
   ],
   CHAT_PATH: "/v1/chat",
   HEALTH_PATH: "/health",
