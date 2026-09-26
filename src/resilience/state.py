@@ -779,7 +779,7 @@ class PostgresState:
                         raise ValueError(f"replication_storage_error:{exc.__class__.__name__}") from exc
         return accepted
 
-    async def replication_integrity(self) -> dict[str, Any]:
+    # Peer integrity canonicalization is mirrored by infra/c33_peer_supabase/c33_peer_integrity.sql.\n    async def replication_integrity(self) -> dict[str, Any]:
         """Return the peer-compatible SQL-canonical digest without DB crypto extensions."""
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
