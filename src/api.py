@@ -97,7 +97,7 @@ class ChatRequest(BaseModel):
     conversation_id: str = Field(default="default", min_length=1, max_length=256)
     request_id: str = Field(default="", max_length=128)
     stream: bool = False
-    personality: str = Field(default="base", max_length=32)
+    personality: str = Field(default="neutral", max_length=32)
     voice_tone: str = Field(default="neutral", max_length=32)
 
     @field_validator("message", "user_id", "conversation_id", "request_id", "personality", "voice_tone", mode="before")

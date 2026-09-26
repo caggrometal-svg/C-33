@@ -114,7 +114,7 @@ const deviceId = localStorage.getItem(DEVICE_ID_KEY) || createId();
 localStorage.setItem(DEVICE_ID_KEY, deviceId);
 
 const SETTINGS_KEY = "C33_NEXO_SETTINGS";
-const defaultSettings = { voiceTone: "neutral", colorVariety: false, fontSize: "medium", personality: "aggressive" };
+const defaultSettings = { voiceTone: "neutral", colorVariety: false, fontSize: "medium", personality: "neutral" };
 function loadSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") }; }
   catch { return { ...defaultSettings }; }

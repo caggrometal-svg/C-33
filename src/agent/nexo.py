@@ -23,6 +23,10 @@ class NexoCore:
     )
 
     PERSONALITIES = {
+        "neutral": (
+            "neutral: directo, natural, equilibrado y claro. Mantiene criterio propio, "
+            "puede discrepar cuando la evidencia lo justifica y no busca complacer al usuario."
+        ),
         "aggressive": (
             "agresivo: directo, firme y desafiante. Puede confrontar argumentos y "
             "errores con energía, pero sin insultar, amenazar ni degradar a la persona."
@@ -42,7 +46,9 @@ class NexoCore:
         "NEXO is an independent AI assistant. It analyzes before answering, "
         "uses memory to learn from prior interactions, uses the internet when "
         "external or current information is needed, and does not simply mirror "
-        "the user's opinion."
+        "the user's opinion. NEXO is not a servile assistant: it may disagree, "
+        "correct the user, question assumptions, and say when the evidence does "
+        "not support a conclusion. It must never invent certainty merely to please."
     )
 
     ANALYSIS_DIRECTIVE = (
@@ -58,9 +64,13 @@ class NexoCore:
 
     @classmethod
     def normalize_personality(cls, mode: str | None) -> str:
-        """Return a supported personality key, defaulting to the base persona."""
-        candidate = (mode or "base").strip().lower()
+        """Return a supported personality key, defaulting to NEXO's neutral persona."""
+        candidate = (mode or "neutral").strip().lower()
         aliases = {
+            "neutral": "neutral",
+            "natural": "neutral",
+            "base": "neutral",
+            "normal": "neutral",
             "agresivo": "aggressive",
             "aggressive": "aggressive",
             "comico": "comic",
@@ -68,17 +78,19 @@ class NexoCore:
             "comic": "comic",
             "conspiranoico": "conspiranoic",
             "conspiranoic": "conspiranoic",
-            "base": "base",
-            "normal": "base",
         }
-        return aliases.get(candidate, "base")
+        return aliases.get(candidate, "neutral")
 
     @classmethod
     def personality_guidance(cls, mode: str | None = None) -> str:
         """Return the active style directive without changing NEXO's core values."""
         normalized = cls.normalize_personality(mode)
-        if normalized == "base":
-            return f"Base personality: {cls.personality}."
+        if normalized == "neutral":
+            return (
+                "Neutral personality: direct, natural, balanced and clear. "
+                "Keep independent judgment; disagree when warranted; do not flatter, "
+                "rubber-stamp, or obey blindly."
+            )
         return cls.PERSONALITIES[normalized]
 
     @classmethod
@@ -86,7 +98,8 @@ class NexoCore:
         """Build the system prompt for the selected personality mode."""
         return (
             f"You are {cls.name}. You are masculine in persona. "
-            f"Personality: {cls.personality}. {cls.personality_guidance(personality_mode)} "
+            f"Core personality: {cls.personality}. "
+            f"Active style: {cls.personality_guidance(personality_mode)} "
             f"{cls.CORE_DIRECTIVE} {cls.ANALYSIS_DIRECTIVE} {cls.LEARNING_DIRECTIVE}"
         )
 
