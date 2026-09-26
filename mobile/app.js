@@ -99,6 +99,17 @@ function diagnosticRequestRef(value) {
   return raw.replace(/[^A-Za-z0-9]/g, "").slice(-10);
 }
 
+function responseDiagnostic(response, startedAt = performance.now()) {
+  const elapsed = Math.max(0, Math.round(performance.now() - Number(startedAt || performance.now())));
+  return {
+    status: response?.status ?? null,
+    ok: Boolean(response?.ok),
+    content_type: response?.headers?.get?.("content-type") || "",
+    elapsed_ms: elapsed,
+  };
+}
+
+
 function sanitizeDiagnosticDetails(details = {}) {
   const source = details && typeof details === "object" ? details : {};
   const safe = {};
