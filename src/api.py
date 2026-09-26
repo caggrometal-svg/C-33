@@ -307,6 +307,13 @@ async def lifespan(_: FastAPI):
                         startup_integrity.get("total_messages", -1),
                         flush=True,
                     )
+                elif startup_pending:
+                    await state.mark_all_replication_synced()
+                    startup_pending = 0
+                    print(
+                        "[NEXO_REPLICATION_RECONCILED] peer_integrity_match=true pending=0",
+                        flush=True,
+                    )
             except Exception as exc:
                 print(
                     "[NEXO_REPLICATION_BACKFILL] probe_failed type=%s detail=%s",
