@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from resilience.state import PostgresState
 from nexo.identity import (
     IdentityAuthError,
     assert_identity_matches,
@@ -149,23 +150,26 @@ class IdentityAuthTests(unittest.TestCase):
             verify_session(tampered, self.SECRET)
 
 
-    async def test_storage_queries_are_identity_scoped(self):
-        pool = _FakePool()
-        state = PostgresState(pool)
+class StorageIdentityScopeTests(unittest.IsolatedAsyncioTestCase):
+async def test_storage_queries_are_identity_scoped(self):
+    pool = _FakePool()
+    state = PostgresState(pool)
 
-        context_a = await state.conversation_context("conversation-1", "identity-a", limit=12)
-        context_b = await state.conversation_context("conversation-1", "identity-b", limit=12)
-        replay_a = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-a")
-        replay_b = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-b")
+    context_a = await state.conversation_context("conversation-1", "identity-a", limit=12)
+    context_b = await state.conversation_context("conversation-1", "identity-b", limit=12)
+    replay_a = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-a")
+    replay_b = await state.existing_assistant_for_request("conversation-1", "request-1", "identity-b")
 
-        self.assertEqual(context_a[0]["content"], "A private message")
-        self.assertEqual(context_b, [])
-        self.assertIsNotNone(replay_a)
-        self.assertIsNone(replay_b)
+    self.assertEqual(context_a[0]["content"], "A private message")
+    self.assertEqual(context_b, [])
+    self.assertIsNotNone(replay_a)
+    self.assertIsNone(replay_b)
 
-        queries = [query for query, _ in pool.connection.calls]
-        self.assertTrue(any("user_id=$2" in query for query in queries))
-        self.assertTrue(any("user_id=$3" in query for query in queries))
+    queries = [query for query, _ in pool.connection.calls]
+    self.assertTrue(any("user_id=$2" in query for query in queries))
+    self.assertTrue(any("user_id=$3" in query for query in queries))
+
+
 
     def test_identity_is_deterministic_per_public_key(self):
         self.assertEqual(
