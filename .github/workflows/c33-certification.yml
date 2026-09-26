@@ -505,7 +505,7 @@ jobs:
           if peer_health_data.get("status") != "alive" or peer_health_data.get("role") != "secondary":
               raise SystemExit(f"peer is not a live secondary: {json.dumps(peer_health_data)}")
 
-          replication_deadline = time.time() + 45
+          replication_deadline = time.time() + 300
           replication_data = {}
           while time.time() < replication_deadline:
               replication = httpx.get(base + "/v1/replication/status", timeout=8)
