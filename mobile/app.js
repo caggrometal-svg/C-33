@@ -120,6 +120,9 @@ function sanitizeDiagnosticDetails(details = {}) {
       safe[key] = value;
     }
   }
+  if (!safe.request_ref && source.request_id) {
+    safe.request_ref = String(source.request_id).slice(-8);
+  }
   safe.ts = new Date(details?.ts || Date.now()).toISOString();
   return safe;
 }
