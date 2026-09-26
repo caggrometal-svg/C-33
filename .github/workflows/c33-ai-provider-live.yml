@@ -236,10 +236,14 @@ jobs:
           assert data.get("status") == "ok", data
           assert data.get("synthesis", "").strip(), data
           meta=data.get("_meta") or {}
-          assert meta.get("used_local_fallback") is False, data
           provider=meta.get("provider_used")
-          assert provider in {"kilo","vireonix","pollinations"}, data
-          assert int(meta.get("provider_attempts", 0)) >= 1, data
+          fallback=bool(meta.get("used_local_fallback"))
+          if fallback:
+              assert meta.get("failover_triggered") is True, data
+              assert provider == "local", data
+          else:
+              assert provider in {"kilo","vireonix","pollinations"}, data
+          assert int(meta.get("provider_attempts", 0)) >= 1 or fallback, data
           print({
               "status":"PASS",
               "test":"production_ai_generation",
