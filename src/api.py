@@ -279,13 +279,15 @@ async def lifespan(_: FastAPI):
         )
         state = PostgresState(db_pool, schema=config.database_schema)
         await state.initialize()
+        peer_bootstrap = await state.ensure_replication_peer(config.peer_url)
         startup_pending = await state.replication_pending_count()
         startup_integrity = await state.replication_integrity()
         print(
-            "[NEXO_REPLICATION_START] pending=%s total=%s unique=%s",
+            "[NEXO_REPLICATION_START] pending=%s total=%s unique=%s peer_changed=%s",
             startup_pending,
             startup_integrity.get("total_messages", -1),
             startup_integrity.get("unique_message_ids", -1),
+            peer_bootstrap.get("changed", False),
             flush=True,
         )
         async with db_pool.acquire() as conn:
