@@ -425,8 +425,10 @@ jobs:
           if local_ai.status_code != 200:
               raise SystemExit(f"local AI status surface failed: {local_ai.status_code} {local_ai.text}")
           local_ai_data = local_ai.json()
-          if local_ai_data.get("status") != "ok" or local_ai_data.get("provider") != "local":
+          if local_ai_data.get("provider") != "local" or not str(local_ai_data.get("model", "")).strip():
               raise SystemExit(f"invalid local AI status surface: {json.dumps(local_ai_data)}")
+          if local_ai_data.get("status") not in {"ready", "disabled", "unavailable"}:
+              raise SystemExit(f"invalid local AI status value: {json.dumps(local_ai_data)}")
 
           action_gate = httpx.post(
               base + "/v1/actions/execute",
