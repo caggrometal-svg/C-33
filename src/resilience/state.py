@@ -789,13 +789,13 @@ class PostgresState:
                         id::text AS id,
                         jsonb_build_object(
                             'id', id,
-                            'conversation_id', conversation_id,
-                            'user_id', user_id,
+                            'conversation_id', btrim(conversation_id),
+                            'user_id', btrim(user_id),
                             'seq', seq,
-                            'role', role,
-                            'content', content,
+                            'role', btrim(role),
+                            'content', btrim(content),
                             'metadata', COALESCE(metadata, '{}'::jsonb),
-                            'request_id', request_id,
+                            'request_id', NULLIF(btrim(request_id), ''),
                             'created_at', created_at
                         )::text AS record_json
                     FROM c33_messages
