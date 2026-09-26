@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlparse
 
 import asyncpg
 import httpx
@@ -89,6 +90,13 @@ CREATE INDEX IF NOT EXISTS idx_c33_outbox_pending
     ON c33_replication_outbox(next_attempt_at)
     WHERE synced_at IS NULL;
 
+CREATE TABLE IF NOT EXISTS c33_replication_meta (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    peer_url TEXT NOT NULL,
+    peer_fingerprint TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS c33_circuit_breakers (
     provider_id TEXT PRIMARY KEY,
     state TEXT NOT NULL CHECK (state IN ('CLOSED','OPEN','HALF_OPEN')),
@@ -143,6 +151,52 @@ class PostgresState:
                 return (await conn.fetchval("SELECT 1")) == 1
         except (OSError, asyncpg.PostgresError):
             return False
+
+    @staticmethod
+    def replication_peer_fingerprint(peer_url: str) -> str:
+        normalized = peer_url.strip().rstrip("/")
+        parsed = urlparse(normalized)
+        canonical = f"{parsed.scheme.lower()}://{(parsed.hostname or '').lower()}{parsed.path.rstrip('/')}"
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    async def ensure_replication_peer(self, peer_url: str | None) -> dict[str, Any]:
+        if not peer_url:
+            return {"changed": False, "fingerprint": None}
+
+        normalized_url = peer_url.strip().rstrip("/")
+        fingerprint = self.replication_peer_fingerprint(normalized_url)
+
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    "SELECT peer_url,peer_fingerprint FROM c33_replication_meta WHERE id=1 FOR UPDATE"
+                )
+                if row is None:
+                    await conn.execute(
+                        "INSERT INTO c33_replication_meta(id,peer_url,peer_fingerprint) VALUES (1,$1,$2)",
+                        normalized_url,
+                        fingerprint,
+                    )
+                    await conn.execute(
+                        "UPDATE c33_replication_outbox "
+                        "SET synced_at=NULL,attempts=0,next_attempt_at=now(),last_error=NULL"
+                    )
+                    return {"changed": True, "fingerprint": fingerprint}
+
+                if str(row["peer_fingerprint"]) == fingerprint:
+                    return {"changed": False, "fingerprint": fingerprint}
+
+                await conn.execute(
+                    "UPDATE c33_replication_meta "
+                    "SET peer_url=$1,peer_fingerprint=$2,updated_at=now() WHERE id=1",
+                    normalized_url,
+                    fingerprint,
+                )
+                await conn.execute(
+                    "UPDATE c33_replication_outbox "
+                    "SET synced_at=NULL,attempts=0,next_attempt_at=now(),last_error=NULL"
+                )
+                return {"changed": True, "fingerprint": fingerprint}
 
     @staticmethod
     def _metadata_dict(value: Any) -> dict[str, Any]:
