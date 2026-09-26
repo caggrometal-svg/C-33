@@ -178,7 +178,6 @@ class ProviderCascade:
                     5000,
                 ),
                 ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 5000),
-                ProviderSpec("pollinations", "https://text.pollinations.ai", "openai-fast", None, "pollinations.ai", 5000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
