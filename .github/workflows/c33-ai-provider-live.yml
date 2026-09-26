@@ -1,0 +1,178 @@
+name: C-33 AI Provider Live
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: c33-ai-provider-live-main
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  ai-provider-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime
+        run: python -m pip install -r requirements.txt
+
+      - name: Deterministic failover contract
+        run: |
+          python - <<'PY'
+          import asyncio
+          import httpx
+          import sys
+          from types import SimpleNamespace
+
+          sys.path.insert(0, "src")
+          from resilience.providers import DeadlineBudget, ProviderCascade, ProviderSpec
+
+          class FakeState:
+              async def circuit_before_call(self, provider_id):
+                  return SimpleNamespace(allowed=True, cooldown_ms=0)
+
+              async def circuit_success(self, **kwargs):
+                  return None
+
+              async def circuit_failure(self, **kwargs):
+                  return None
+
+          def transport(request):
+              if request.url.host == "primary.test":
+                  return httpx.Response(503, request=request, json={"error": "forced_failover_test"})
+              return httpx.Response(
+                  200,
+                  request=request,
+                  json={
+                      "choices": [
+                          {
+                              "message": {
+                                  "content": "C33_FAILOVER_OK"
+                              }
+                          }
+                      ]
+                  },
+              )
+
+          specs = [
+              ProviderSpec("primary", "https://primary.test/v1", "free-primary", None, "domain-a", 5000),
+              ProviderSpec("backup", "https://backup.test/v1", "free-backup", None, "domain-b", 5000),
+              ProviderSpec("last-resort", "https://last.test/v1", "free-last", None, "domain-c", 5000),
+          ]
+          cascade = ProviderCascade(
+              FakeState(),
+              specs,
+              ["primary", "backup", "last-resort"],
+              transport=httpx.MockTransport(transport),
+          )
+          result = asyncio.run(
+              cascade.complete(
+                  [{"role": "user", "content": "Reply exactly C33_FAILOVER_OK"}],
+                  DeadlineBudget(12_000),
+                  preferred_provider="primary",
+              )
+          )
+          assert result.text == "C33_FAILOVER_OK"
+          assert result.meta.provider_used == "backup"
+          assert result.meta.failover_triggered is True
+          print({
+              "status": "PASS",
+              "test": "primary_failure_then_backup_success",
+              "provider_used": result.meta.provider_used,
+              "failover_triggered": result.meta.failover_triggered,
+              "attempts": result.meta.attempts,
+          })
+          PY
+
+      - name: Real zero-cost provider cascade
+        run: |
+          python - <<'PY'
+          import asyncio
+          import sys
+          from types import SimpleNamespace
+
+          sys.path.insert(0, "src")
+          from resilience.providers import DeadlineBudget, ProviderCascade, ProviderSpec
+
+          class FakeState:
+              async def circuit_before_call(self, provider_id):
+                  return SimpleNamespace(allowed=True, cooldown_ms=0)
+
+              async def circuit_success(self, **kwargs):
+                  return None
+
+              async def circuit_failure(self, **kwargs):
+                  return None
+
+          specs = [
+              ProviderSpec(
+                  "kilo",
+                  "https://api.kilo.ai/api/gateway",
+                  "kilo-auto/free",
+                  None,
+                  "kilo.ai",
+                  5000,
+              ),
+              ProviderSpec(
+                  "vireonix",
+                  "https://vireonix.ai/v1",
+                  "auto",
+                  None,
+                  "vireonix.ai",
+                  5000,
+              ),
+              ProviderSpec(
+                  "pollinations",
+                  "https://text.pollinations.ai",
+                  "openai-fast",
+                  None,
+                  "pollinations.ai",
+                  5000,
+              ),
+          ]
+          cascade = ProviderCascade(
+              FakeState(),
+              specs,
+              ["kilo", "vireonix", "pollinations"],
+          )
+
+          async def main():
+              observed = []
+              for index in range(2):
+                  result = await cascade.complete(
+                      [{"role": "user", "content": "Reply exactly C33_LIVE_AI_OK"}],
+                      DeadlineBudget(15_000),
+                  )
+                  if not result.text.strip():
+                      raise SystemExit("live provider returned empty text")
+                  observed.append(
+                      {
+                          "iteration": index + 1,
+                          "provider": result.meta.provider_used,
+                          "model": result.meta.model,
+                          "latency_ms": result.meta.latency_ms,
+                          "failover": result.meta.failover_triggered,
+                          "attempts": result.meta.attempts,
+                          "final_reason": result.meta.final_reason,
+                          "text_prefix": result.text[:80],
+                      }
+                  )
+              print({
+                  "status": "PASS",
+                  "cost_model": "$0",
+                  "runs": observed,
+              })
+
+          asyncio.run(main())
+          PY
