@@ -175,9 +175,9 @@ class ProviderCascade:
                     "kilo-auto/free",
                     None,
                     "kilo.ai",
-                    5000,
+                    9000,
                 ),
-                ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 5000),
+                ProviderSpec("vireonix", "https://vireonix.ai/v1", "auto", None, "vireonix.ai", 9000),
             ]
 
         provider_ids = {spec.provider_id for spec in specs}
