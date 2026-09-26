@@ -572,6 +572,65 @@ jobs:
           }, ensure_ascii=False, indent=2))
           PY
 
+  deplexo:
+    name: Deplexo runtime connectivity
+    needs: [backend, mobile]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx
+      - name: Verify Deplexo runtime
+        run: |
+          python - <<'PY'
+          import json
+          import httpx
+
+          endpoints = json.load(open("infra/c33-endpoints.json", encoding="utf-8"))
+          base = str(endpoints["runtime_backup"]).rstrip("/")
+
+          def get(path, timeout=12):
+              response = httpx.get(base + path, timeout=timeout, headers={"Cache-Control": "no-cache"})
+              if response.status_code != 200:
+                  raise SystemExit(f"deplexo {path} failed: {response.status_code} {response.text}")
+              return response.json()
+
+          health = get("/health")
+          if health.get("service") != "C-33":
+              raise SystemExit(f"unexpected Deplexo health service: {json.dumps(health)}")
+          if health.get("role") == "secondary":
+              raise SystemExit(f"Deplexo cannot be a replication-only secondary for client failover: {json.dumps(health)}")
+
+          ready = get("/ready")
+          if ready.get("status") != "ready":
+              raise SystemExit(f"Deplexo is not ready: {json.dumps(ready)}")
+          if ready.get("peer_configured") is not True:
+              raise SystemExit(f"Deplexo peer replication is not configured: {json.dumps(ready)}")
+          if int(ready.get("provider_count", 0)) < 2:
+              raise SystemExit(f"Deplexo provider redundancy is incomplete: {json.dumps(ready)}")
+
+          ai_ready = get("/v1/ai-ready")
+          if ai_ready.get("status") != "ai_ready" or not str(ai_ready.get("provider_used", "")).strip():
+              raise SystemExit(f"Deplexo remote AI is not ready: {json.dumps(ai_ready)}")
+
+          diagnostics = get("/v1/ai/diagnostics")
+          if diagnostics.get("status") != "ok":
+              raise SystemExit(f"Deplexo diagnostics are not green: {json.dumps(diagnostics)}")
+          if int(diagnostics.get("providers_selectable", 0)) < 2:
+              raise SystemExit(f"Deplexo provider selection redundancy is incomplete: {json.dumps(diagnostics)}")
+
+          print(json.dumps({
+              "deplexo": base,
+              "health": health,
+              "ready": ready,
+              "ai_ready": ai_ready,
+              "diagnostics": diagnostics,
+          }, ensure_ascii=False, indent=2))
+          print("C33_DEPLEXO_RUNTIME_GREEN")
+          PY
+
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
@@ -584,7 +643,7 @@ jobs:
 
   final:
     name: C-33 final matrix gate
-    needs: [backend, mobile, android, live, codeql, closure, closure_61_100, six_runtime_surfaces]
+    needs: [backend, mobile, android, live, deplexo, codeql, closure, closure_61_100, six_runtime_surfaces]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -594,6 +653,7 @@ jobs:
           MOBILE_RESULT: ${{ needs.mobile.result }}
           ANDROID_RESULT: ${{ needs.android.result }}
           LIVE_RESULT: ${{ needs.live.result }}
+          DEPLEXO_RESULT: ${{ needs.deplexo.result }}
           CODEQL_RESULT: ${{ needs.codeql.result }}
           CLOSURE_RESULT: ${{ needs.closure.result }}
           CLOSURE_61_100_RESULT: ${{ needs.closure_61_100.result }}
@@ -603,6 +663,7 @@ jobs:
           test "$MOBILE_RESULT" = success
           test "$ANDROID_RESULT" = success
           test "$LIVE_RESULT" = success
+          test "$DEPLEXO_RESULT" = success
           test "$CODEQL_RESULT" = success
           test "$CLOSURE_RESULT" = success
           test "$CLOSURE_61_100_RESULT" = success
