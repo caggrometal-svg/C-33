@@ -82,7 +82,7 @@ jobs:
               from resilience.providers import DeadlineBudget
 
               class FakeState:
-                  async def conversation_context(self, conversation_id, limit=12):
+                  async def conversation_context(self, conversation_id, user_id, limit=12):
                       return []
 
                   async def search_memory(self, user_id, query, limit=12):
